@@ -128,6 +128,13 @@ forge test --match-path "test/LiquidStaking.t.sol" -vv
 make tests-hardhat
 ```
 
+### GitHub workflows
+
+The PR process is managed by GitHub workflows, where the code undergoes several steps in order to be verified. Those include:
+- code installation;
+- running linters;
+- running tests.
+
 ### Key Test Scenarios
 
 The test suite covers comprehensive E2E scenarios:
@@ -227,7 +234,21 @@ Proposal Id: [`59025344683074789922169705239782887646995636661382504070382540682
 Proposal State: [Executed](https://etherscan.io/address/0x8e84b5055492901988b831817e4ace5275a3b401#readContract#F21)
 
 ## Audits
+
 Internal and external audits are provided as development matures. All audit reports can be found [here](audits/README.md).
+
+### Static audit
+
+The static audit checks all the deployed contracts on-chain info correctness and can be run using the following script:
+```
+./scripts/deployment/script_static_audit.sh eth_mainnet NETWORK_mainnet
+```
+
+## Deployment
+
+Finalized contract ABIs for deployment are located here: [ABIs](abis).
+
+The list of contract addresses for different chains and their full contract configuration can be found [here](doc/configuration.json).
 
 ## Documentation
 
@@ -249,7 +270,7 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 
 ## Contact
 
-- **Website**: [https://lstolas.xyz](https://lstolas.xyz) (Under construction)
+- **Website**: [https://lstolas.xyz](https://lstolas.xyz)
 - **Repository**: https://github.com/kupermind/olas-lst
 - **Security**: security@lstolas.xyz
 
