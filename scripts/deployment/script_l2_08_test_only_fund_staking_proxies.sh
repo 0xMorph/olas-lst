@@ -27,7 +27,8 @@ networkURL=$(jq -r '.networkURL' $globals)
 olasAddress=$(jq -r ".olasAddress" $globals)
 stakingProxyAddress=$(jq -r ".stakingProxyAddresses.[$2]" $globals)
 #stakingProxyAddresses=$(jq -r ".stakingProxyAddresses" $globals)
-amount="2000000000000000000000"
+#amount="2000000000000000000000"
+amount="1000000000000000000000"
 
 # Check for Polygon keys only since on other networks those are not needed
 if [ $chainId == 137 ]; then

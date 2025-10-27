@@ -35,7 +35,7 @@ Users pay **gas fees** and, if a withdrawal requires bridging/unstaking, **netwo
 Third party integrations (DEXes, aggregators) may charge their own fees. Governance can introduce changes in the future; always check the app for current parameters.
 
 ## 6) How can I get stOLAS?
-- **Mint:** Deposit OLAS through the official front‑end/wallet flow (invoking the **Depository**, which calls `stOLAS.deposit()` on your behalf).
+- **Mint:** Deposit OLAS through the [official front‑end/wallet flow](https://lstolas.xyz/stake) (invoking the **Depository**, which calls `stOLAS.deposit()` on your behalf).
 - **Buy:** Acquire on a secondary market/DEX **if listed** (availability is not guaranteed).
 
 ## 7) How can I use stOLAS?
