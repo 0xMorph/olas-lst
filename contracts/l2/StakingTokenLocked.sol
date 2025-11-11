@@ -302,9 +302,9 @@ contract StakingTokenLocked is ERC721TokenReceiver {
 
         // Initial checks
         if (
-            _stakingParams.metadataHash == 0 || _stakingParams.maxNumServices == 0 ||
-            _stakingParams.rewardsPerSecond == 0 || _stakingParams.livenessPeriod == 0 ||
-            _stakingParams.timeForEmissions == 0
+            _stakingParams.metadataHash == 0 || _stakingParams.maxNumServices == 0
+                || _stakingParams.rewardsPerSecond == 0 || _stakingParams.livenessPeriod == 0
+                || _stakingParams.timeForEmissions == 0
         ) {
             revert ZeroValue();
         }
@@ -314,9 +314,9 @@ contract StakingTokenLocked is ERC721TokenReceiver {
             revert LowerThan(_stakingParams.minStakingDeposit, 2);
         }
         if (
-            _stakingParams.serviceRegistry == address(0) || _stakingParams.activityChecker == address(0) ||
-            _stakingParams.serviceRegistryTokenUtility == address(0) || _stakingParams.stakingToken == address(0) ||
-            _stakingParams.stakingManager == address(0)
+            _stakingParams.serviceRegistry == address(0) || _stakingParams.activityChecker == address(0)
+                || _stakingParams.serviceRegistryTokenUtility == address(0) || _stakingParams.stakingToken == address(0)
+                || _stakingParams.stakingManager == address(0)
         ) {
             revert ZeroAddress();
         }
@@ -780,8 +780,7 @@ contract StakingTokenLocked is ERC721TokenReceiver {
             uint256 numServices,
             uint256 totalRewards,
             uint256[] memory eligibleServiceIds,
-            uint256[] memory eligibleServiceRewards,
-            ,
+            uint256[] memory eligibleServiceRewards,,
         ) = _calculateStakingRewards();
 
         // If there are eligible services, proceed with staking calculation and update rewards for the service Id
