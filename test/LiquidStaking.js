@@ -47,6 +47,7 @@ describe("Liquid Staking", function () {
     const regDeposit = ethers.utils.parseEther("10000");
     const serviceId = 1;
     const agentId = 1;
+    const agentIds = [agentId];
     const livenessPeriod = oneDay; // 24 hours
     const initSupply = "5" + "0".repeat(26);
     const livenessRatio = "1"; // minimal possible value
@@ -55,16 +56,24 @@ describe("Liquid Staking", function () {
     const fullStakeDeposit = regDeposit.mul(2);
     const timeForEmissions = 30 * oneDay;
     let serviceParams = {
+        metadataHash: defaultHash,
         maxNumServices,
         rewardsPerSecond: "5" + "0".repeat(14),
         minStakingDeposit,
+        minNumStakingPeriods: 0,
+        maxNumInactivityPeriods: 0,
+        numAgentInstances: 1,
         livenessPeriod,
         timeForEmissions,
+        agentIds,
+        threshold: 0,
+        configHash: HashZero,
+        proxyHash: HashZero,
         serviceRegistry: AddressZero,
+        activityChecker: AddressZero,
         serviceRegistryTokenUtility: AddressZero,
         stakingToken: AddressZero,
-        stakingManager: AddressZero,
-        activityChecker: AddressZero
+        stakingManager: AddressZero
     };
     const apyLimit = ethers.utils.parseEther("3");
     const lockFactor = 100;

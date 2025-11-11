@@ -40,7 +40,10 @@ maxNumServices="50"
 timeForEmissions="2592000"
 rewardsPerSecond="380517503805174"
 
-proxyData=$(cast calldata "initialize((uint256,uint256,uint256,uint256,uint256,address,address,address,address,address))" "($maxNumServices, $rewardsPerSecond, $minStakingDeposit, $livenessPeriod, $timeForEmissions, $serviceRegistryAddress, $serviceRegistryTokenUtilityAddress, $olasAddress, $stakingManagerProxyAddress, $moduleActivityCheckerAddress)")
+metadataHash="0x0000000000000000000000000000000000000000000000000000000000000001"
+agentIds=["69"]
+
+proxyData=$(cast calldata "initialize((bytes32,uint256,uint256,uint256,uint256,uint256,uint256[],address,address,address,address,address))" "($metadataHash, $maxNumServices, $rewardsPerSecond, $minStakingDeposit, $livenessPeriod, $timeForEmissions, $agentIds, $serviceRegistryAddress, $moduleActivityCheckerAddress, $serviceRegistryTokenUtilityAddress, $olasAddress, $stakingManagerProxyAddress)")
 
 # Check for Polygon keys only since on other networks those are not needed
 if [ $chainId == 137 ]; then

@@ -36,7 +36,7 @@ import {Collector} from "../contracts/l2/Collector.sol";
 import {ActivityModule} from "../contracts/l2/ActivityModule.sol";
 import {StakingManager} from "../contracts/l2/StakingManager.sol";
 import {ModuleActivityChecker} from "../contracts/l2/ModuleActivityChecker.sol";
-import {StakingTokenLocked, ServiceInfo} from "../contracts/l2/StakingTokenLocked.sol";
+import {StakingTokenLocked} from "../contracts/l2/StakingTokenLocked.sol";
 import {GnosisStakingProcessorL2} from "../contracts/l2/bridging/GnosisStakingProcessorL2.sol";
 
 import {Proxy} from "../contracts/Proxy.sol";
@@ -89,6 +89,8 @@ contract LiquidStakingTest is Test {
     address internal agent;
     address payable[] internal users;
 
+    uint256[] internal agentIds;
+
     // Constants
     uint256 public constant ONE_DAY = 86400;
     uint256 public constant REG_DEPOSIT = 10000 ether;
@@ -103,6 +105,7 @@ contract LiquidStakingTest is Test {
     uint256 public constant FULL_STAKE_DEPOSIT = REG_DEPOSIT * 2;
     uint256 public constant STAKING_SUPPLY = FULL_STAKE_DEPOSIT * MAX_NUM_SERVICES;
     uint256 public constant TIME_FOR_EMISSIONS = 30 * ONE_DAY;
+    uint256 public constant NUM_AGENT_INSTANCES = 1;
     uint256 public constant APY_LIMIT = 3 ether;
     uint256 public constant LOCK_FACTOR = 100;
     uint256 public constant MAX_STAKING_LIMIT = 20000 ether;
@@ -264,10 +267,13 @@ contract LiquidStakingTest is Test {
         boolArr[0] = true;
         stakingVerifier.setImplementationsStatuses(stakingTokenImplementations, boolArr, true);
 
-        StakingTokenLocked.StakingParams memory stakingParams = StakingTokenLocked.StakingParams(
-            MAX_NUM_SERVICES, REWARDS_PER_SECOND, MIN_STAKING_DEPOSIT, LIVENESS_PERIOD, TIME_FOR_EMISSIONS,
-            address(serviceRegistry), address(serviceRegistryTokenUtility), address(olas), address(stakingManager),
-            address(moduleActivityChecker));
+        // Construct staking contract params
+        agentIds.push(AGENT_ID);
+        StakingTokenLocked.StakingParams memory stakingParams = StakingTokenLocked.StakingParams(DEFAULT_HASH,
+            MAX_NUM_SERVICES, REWARDS_PER_SECOND, MIN_STAKING_DEPOSIT, 0, 0, LIVENESS_PERIOD, TIME_FOR_EMISSIONS,
+            NUM_AGENT_INSTANCES, agentIds, 0, DEFAULT_HASH, bytes32(0), address(serviceRegistry),
+            address(moduleActivityChecker), address(serviceRegistryTokenUtility), address(olas), address(stakingManager)
+        );
 
         // Initialization payload and deployment of stakingNativeToken
         initPayload = abi.encodeWithSelector(stakingTokenImplementation.initialize.selector, stakingParams);
