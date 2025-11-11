@@ -105,7 +105,6 @@ contract LiquidStakingTest is Test {
     uint256 public constant FULL_STAKE_DEPOSIT = REG_DEPOSIT * 2;
     uint256 public constant STAKING_SUPPLY = FULL_STAKE_DEPOSIT * MAX_NUM_SERVICES;
     uint256 public constant TIME_FOR_EMISSIONS = 30 * ONE_DAY;
-    uint256 public constant NUM_AGENT_INSTANCES = 1;
     uint256 public constant APY_LIMIT = 3 ether;
     uint256 public constant LOCK_FACTOR = 100;
     uint256 public constant MAX_STAKING_LIMIT = 20000 ether;
@@ -270,9 +269,9 @@ contract LiquidStakingTest is Test {
         // Construct staking contract params
         agentIds.push(AGENT_ID);
         StakingTokenLocked.StakingParams memory stakingParams = StakingTokenLocked.StakingParams(DEFAULT_HASH,
-            MAX_NUM_SERVICES, REWARDS_PER_SECOND, MIN_STAKING_DEPOSIT, 0, 0, LIVENESS_PERIOD, TIME_FOR_EMISSIONS,
-            NUM_AGENT_INSTANCES, agentIds, 0, DEFAULT_HASH, bytes32(0), address(serviceRegistry),
-            address(moduleActivityChecker), address(serviceRegistryTokenUtility), address(olas), address(stakingManager)
+            MAX_NUM_SERVICES, REWARDS_PER_SECOND, MIN_STAKING_DEPOSIT, LIVENESS_PERIOD, TIME_FOR_EMISSIONS,
+            agentIds, address(serviceRegistry), address(moduleActivityChecker), address(serviceRegistryTokenUtility),
+            address(olas), address(stakingManager)
         );
 
         // Initialization payload and deployment of stakingNativeToken
