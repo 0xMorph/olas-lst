@@ -32,13 +32,15 @@ serviceRegistryTokenUtilityAddress=$(jq -r ".serviceRegistryTokenUtilityAddress"
 stakingManagerProxyAddress=$(jq -r ".stakingManagerProxyAddress" $globals)
 moduleActivityCheckerAddress=$(jq -r ".moduleActivityCheckerAddress" $globals)
 
-livenessPeriod=$(jq -r ".livenessPeriod" $globals)
-minStakingDeposit=$(jq -r ".minStakingDeposit" $globals)
+metadataHash=$(jq -r ".metadataHash" $globals)
 maxNumServices=$(jq -r ".maxNumServices" $globals)
-timeForEmissions=$(jq -r ".timeForEmissions" $globals)
 rewardsPerSecond=$(jq -r ".rewardsPerSecond" $globals)
+minStakingDeposit=$(jq -r ".minStakingDeposit" $globals)
+livenessPeriod=$(jq -r ".livenessPeriod" $globals)
+timeForEmissions=$(jq -r ".timeForEmissions" $globals)
+agentIds=$(jq -r ".agentIds" $globals)
 
-proxyData=$(cast calldata "initialize((uint256,uint256,uint256,uint256,uint256,address,address,address,address,address))" "($maxNumServices, $rewardsPerSecond, $minStakingDeposit, $livenessPeriod, $timeForEmissions, $serviceRegistryAddress, $serviceRegistryTokenUtilityAddress, $olasAddress, $stakingManagerProxyAddress, $moduleActivityCheckerAddress)")
+proxyData=$(cast calldata "initialize((bytes32,uint256,uint256,uint256,uint256,uint256,uint256[],address,address,address,address,address))" "($metadataHash, $maxNumServices, $rewardsPerSecond, $minStakingDeposit, $livenessPeriod, $timeForEmissions, $agentIds, $serviceRegistryAddress, $moduleActivityCheckerAddress, $serviceRegistryTokenUtilityAddress, $olasAddress, $stakingManagerProxyAddress)")
 
 # Check for Polygon keys only since on other networks those are not needed
 if [ $chainId == 137 ]; then

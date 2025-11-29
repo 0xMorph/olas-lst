@@ -48,7 +48,7 @@
   "gnosisStakingProcessorL2Address": "0x7341bff68aa4F93E636C9D88AaA7c9E6dceD527d",
   "livenessRatio": "1",
   "moduleActivityCheckerAddress": "0x8aAF970523c50A94ABa1887A617326cdf9358008",
-  "stakingTokenLockedAddress": "0xaaea6ffe7F81911Ff15425e8A4B530F182D90DdF",
+  "stakingTokenLockedAddress": "0x23e16E930D19F9AE53574265ba36E7Bef5E9Ea4D",
   "stakingHelperAddress": "0xFD1ACD598eC03680d6a416f82bfc5f26Ee5442dB",
   "stakingProxyAddresses": [
     "0x9277fa41D459274462D235B3e0A547add2Ac4Be3",

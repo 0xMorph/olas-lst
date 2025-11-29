@@ -36,7 +36,7 @@ import {Collector} from "../contracts/l2/Collector.sol";
 import {ActivityModule} from "../contracts/l2/ActivityModule.sol";
 import {StakingManager} from "../contracts/l2/StakingManager.sol";
 import {ModuleActivityChecker} from "../contracts/l2/ModuleActivityChecker.sol";
-import {StakingTokenLocked, ServiceInfo} from "../contracts/l2/StakingTokenLocked.sol";
+import {StakingTokenLocked} from "../contracts/l2/StakingTokenLocked.sol";
 import {GnosisStakingProcessorL2} from "../contracts/l2/bridging/GnosisStakingProcessorL2.sol";
 
 import {Proxy} from "../contracts/Proxy.sol";
@@ -88,6 +88,8 @@ contract LiquidStakingTest is Test {
     address internal deployer;
     address internal agent;
     address payable[] internal users;
+
+    uint256[] internal agentIds;
 
     // Constants
     uint256 public constant ONE_DAY = 86400;
@@ -264,10 +266,13 @@ contract LiquidStakingTest is Test {
         boolArr[0] = true;
         stakingVerifier.setImplementationsStatuses(stakingTokenImplementations, boolArr, true);
 
-        StakingTokenLocked.StakingParams memory stakingParams = StakingTokenLocked.StakingParams(
+        // Construct staking contract params
+        agentIds.push(AGENT_ID);
+        StakingTokenLocked.StakingParams memory stakingParams = StakingTokenLocked.StakingParams(DEFAULT_HASH,
             MAX_NUM_SERVICES, REWARDS_PER_SECOND, MIN_STAKING_DEPOSIT, LIVENESS_PERIOD, TIME_FOR_EMISSIONS,
-            address(serviceRegistry), address(serviceRegistryTokenUtility), address(olas), address(stakingManager),
-            address(moduleActivityChecker));
+            agentIds, address(serviceRegistry), address(moduleActivityChecker), address(serviceRegistryTokenUtility),
+            address(olas), address(stakingManager)
+        );
 
         // Initialization payload and deployment of stakingNativeToken
         initPayload = abi.encodeWithSelector(stakingTokenImplementation.initialize.selector, stakingParams);

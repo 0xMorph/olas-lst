@@ -113,6 +113,10 @@ error ZeroValue();
 /// @param activityChecker Activity checker address.
 error ContractOnly(address activityChecker);
 
+/// @dev Agent Id is not correctly provided for the current routine.
+/// @param agentId Component Id.
+error WrongAgentId(uint256 agentId);
+
 /// @dev Wrong state of a service.
 /// @param state Service state.
 /// @param serviceId Service Id.
@@ -170,6 +174,9 @@ contract StakingTokenLocked is ERC721TokenReceiver {
 
     // Input staking parameters
     struct StakingParams {
+        // Subset of default OLAS staking contract variables
+        // Metadata staking information
+        bytes32 metadataHash;
         // Maximum number of staking services
         uint256 maxNumServices;
         // Rewards per second
@@ -180,16 +187,20 @@ contract StakingTokenLocked is ERC721TokenReceiver {
         uint256 livenessPeriod;
         // Time for emissions
         uint256 timeForEmissions;
+        // Optional agent Ids requirement
+        uint256[] agentIds;
         // ServiceRegistry contract address
         address serviceRegistry;
+        // Service activity checker address
+        address activityChecker;
+
+        // LST extended variables
         // ServiceRegistryTokenUtility address
         address serviceRegistryTokenUtility;
-        // Security token address for staking corresponding to the service deposit token
+        // Security token address for staking corresponding to service deposit token
         address stakingToken;
         // Staking manager address
         address stakingManager;
-        // Service activity checker address
-        address activityChecker;
     }
 
     event ServiceStaked(
@@ -218,8 +229,12 @@ contract StakingTokenLocked is ERC721TokenReceiver {
     event Deposit(address indexed sender, uint256 amount, uint256 balance, uint256 availableRewards);
     event Withdraw(address indexed to, uint256 amount);
 
+    // Default OLAS staking variables
     // Contract version
-    string public constant VERSION = "0.3.0";
+    string public constant VERSION = "0.1.0";
+    // Staking parameters for initialization
+    // Metadata staking information
+    bytes32 public metadataHash;
     // Maximum number of staking services
     uint256 public maxNumServices;
     // Rewards per second
@@ -227,21 +242,38 @@ contract StakingTokenLocked is ERC721TokenReceiver {
     // Minimum service staking deposit value required for staking
     // The staking deposit must be always greater than 1 in order to distinguish between native and ERC20 tokens
     uint256 public minStakingDeposit;
+    // Max number of accumulated inactivity periods after which the service is evicted
+    uint256 public maxNumInactivityPeriods;
     // Liveness period
     uint256 public livenessPeriod;
     // Time for emissions
     uint256 public timeForEmissions;
+    // Number of agent instances in the service
+    uint256 public numAgentInstances;
+    // Optional service multisig threshold requirement
+    uint256 public threshold;
+    // Optional service configuration hash requirement
+    bytes32 public configHash;
+    // Approved multisig proxy hash
+    bytes32 public proxyHash;
     // ServiceRegistry contract address
     address public serviceRegistry;
+    // Service activity checker address
+    address public activityChecker;
+
+    // LST specific variables
     // ServiceRegistryTokenUtility address
     address public serviceRegistryTokenUtility;
     // Security token address for staking corresponding to the service deposit token
     address public stakingToken;
     // Staking manager address
     address public stakingManager;
-    // Service activity checker address
-    address public activityChecker;
 
+    // The rest of state variables
+    // Min staking duration
+    uint256 public minStakingDuration;
+    // Max allowed inactivity period
+    uint256 public maxInactivityDuration;
     // Epoch counter
     uint256 public epochCounter;
     // Token / ETH balance
@@ -252,6 +284,8 @@ contract StakingTokenLocked is ERC721TokenReceiver {
     uint256 public emissionsAmount;
     // Timestamp of the last checkpoint
     uint256 public tsCheckpoint;
+    // Optional agent Ids requirement
+    uint256[] public agentIds;
 
     // Mapping of serviceId => staking service info
     mapping(uint256 => ServiceInfo) public mapServiceInfo;
@@ -268,8 +302,9 @@ contract StakingTokenLocked is ERC721TokenReceiver {
 
         // Initial checks
         if (
-            _stakingParams.maxNumServices == 0 || _stakingParams.rewardsPerSecond == 0
-                || _stakingParams.livenessPeriod == 0 || _stakingParams.timeForEmissions == 0
+            _stakingParams.metadataHash == 0 || _stakingParams.maxNumServices == 0
+                || _stakingParams.rewardsPerSecond == 0 || _stakingParams.livenessPeriod == 0
+                || _stakingParams.timeForEmissions == 0
         ) {
             revert ZeroValue();
         }
@@ -278,7 +313,11 @@ contract StakingTokenLocked is ERC721TokenReceiver {
         if (_stakingParams.minStakingDeposit < 2) {
             revert LowerThan(_stakingParams.minStakingDeposit, 2);
         }
-        if (_stakingParams.serviceRegistry == address(0) || _stakingParams.activityChecker == address(0)) {
+        if (
+            _stakingParams.serviceRegistry == address(0) || _stakingParams.activityChecker == address(0)
+                || _stakingParams.serviceRegistryTokenUtility == address(0) || _stakingParams.stakingToken == address(0)
+                || _stakingParams.stakingManager == address(0)
+        ) {
             revert ZeroAddress();
         }
 
@@ -288,16 +327,31 @@ contract StakingTokenLocked is ERC721TokenReceiver {
         }
 
         // Assign all the required parameters
+        metadataHash = _stakingParams.metadataHash;
         maxNumServices = _stakingParams.maxNumServices;
         rewardsPerSecond = _stakingParams.rewardsPerSecond;
         minStakingDeposit = _stakingParams.minStakingDeposit;
         livenessPeriod = _stakingParams.livenessPeriod;
         timeForEmissions = _stakingParams.timeForEmissions;
+        numAgentInstances = 1;
         serviceRegistry = _stakingParams.serviceRegistry;
+        activityChecker = _stakingParams.activityChecker;
+
+        // Assign LST specific parameters
         serviceRegistryTokenUtility = _stakingParams.serviceRegistryTokenUtility;
         stakingToken = _stakingParams.stakingToken;
         stakingManager = _stakingParams.stakingManager;
-        activityChecker = _stakingParams.activityChecker;
+
+        // Assign agent Ids, if applicable
+        uint256 agentId;
+        for (uint256 i = 0; i < _stakingParams.agentIds.length; ++i) {
+            // Agent Ids must be unique and in ascending order
+            if (_stakingParams.agentIds[i] <= agentId) {
+                revert WrongAgentId(_stakingParams.agentIds[i]);
+            }
+            agentId = _stakingParams.agentIds[i];
+            agentIds.push(agentId);
+        }
 
         // Calculate emissions amount
         emissionsAmount =
@@ -726,8 +780,7 @@ contract StakingTokenLocked is ERC721TokenReceiver {
             uint256 numServices,
             uint256 totalRewards,
             uint256[] memory eligibleServiceIds,
-            uint256[] memory eligibleServiceRewards,
-            ,
+            uint256[] memory eligibleServiceRewards,,
         ) = _calculateStakingRewards();
 
         // If there are eligible services, proceed with staking calculation and update rewards for the service Id
