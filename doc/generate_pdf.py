@@ -124,7 +124,7 @@ def create_pdf(input_file, output_file):
 
 if __name__ == "__main__":
     input_file = "stolas_whitepaper.txt"
-    output_file = "stolas_whitepaper_formatted.pdf"
+    output_file = "stolas_whitepaper.pdf"
     
     if not os.path.exists(input_file):
         print(f"Error: Input file '{input_file}' not found!")
