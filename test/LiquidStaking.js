@@ -107,10 +107,18 @@ describe("Liquid Staking", function () {
         operatorWhitelist = await OperatorWhitelist.deploy(serviceRegistry.address);
         await operatorWhitelist.deployed();
 
-        const ServiceManagerToken = await ethers.getContractFactory("ServiceManagerToken");
-        serviceManager = await ServiceManagerToken.deploy(serviceRegistry.address, serviceRegistryTokenUtility.address,
-            operatorWhitelist.address);
+        const ServiceManager = await ethers.getContractFactory("ServiceManager");
+        serviceManager = await ServiceManager.deploy(serviceRegistry.address, serviceRegistryTokenUtility.address);
         await serviceManager.deployed();
+
+        proxyData = serviceManager.interface.encodeFunctionData("initialize", []);
+        // Deploy serviceManager proxy based on the needed serviceManager initialization
+        const ServiceManagerProxy = await ethers.getContractFactory("ServiceManagerProxy");
+        const serviceManagerProxy = await ServiceManagerProxy.deploy(serviceManager.address, proxyData);
+        await serviceManagerProxy.deployed();
+
+        // Wrap serviceManager proxy contract
+        serviceManager = await ethers.getContractAt("ServiceManager", serviceManagerProxy.address);
 
         const GnosisSafe = await ethers.getContractFactory("GnosisSafe");
         gnosisSafe = await GnosisSafe.deploy();

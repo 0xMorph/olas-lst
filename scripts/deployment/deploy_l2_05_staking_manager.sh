@@ -32,7 +32,7 @@ chainId=$(jq -r '.chainId' $globals)
 networkURL=$(jq -r '.networkURL' $globals)
 
 olasAddress=$(jq -r '.olasAddress' $globals)
-serviceManagerTokenAddress=$(jq -r '.serviceManagerTokenAddress' $globals)
+serviceManagerProxyAddress=$(jq -r '.serviceManagerProxyAddress' $globals)
 stakingFactoryAddress=$(jq -r '.stakingFactoryAddress' $globals)
 safeToL2SetupAddress=$(jq -r '.safeToL2SetupAddress' $globals)
 gnosisSafeL2Address=$(jq -r '.gnosisSafeL2Address' $globals)
@@ -59,7 +59,7 @@ fi
 
 contractName="StakingManager"
 contractPath="contracts/l2/$contractName.sol:$contractName"
-constructorArgs="$olasAddress $serviceManagerTokenAddress $stakingFactoryAddress $safeToL2SetupAddress $gnosisSafeL2Address $beaconAddress $collectorProxyAddress $agentId $configHash"
+constructorArgs="$olasAddress $serviceManagerProxyAddress $stakingFactoryAddress $safeToL2SetupAddress $gnosisSafeL2Address $beaconAddress $collectorProxyAddress $agentId $configHash"
 contractArgs="$contractPath --constructor-args $constructorArgs"
 
 # Get deployer based on the ledger flag
