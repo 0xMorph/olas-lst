@@ -111,7 +111,7 @@ describe("Liquid Staking", function () {
         serviceManager = await ServiceManager.deploy(serviceRegistry.address, serviceRegistryTokenUtility.address);
         await serviceManager.deployed();
 
-        proxyData = serviceManager.interface.encodeFunctionData("initialize", []);
+        const proxyData = serviceManager.interface.encodeFunctionData("initialize", []);
         // Deploy serviceManager proxy based on the needed serviceManager initialization
         const ServiceManagerProxy = await ethers.getContractFactory("ServiceManagerProxy");
         const serviceManagerProxy = await ServiceManagerProxy.deploy(serviceManager.address, proxyData);
