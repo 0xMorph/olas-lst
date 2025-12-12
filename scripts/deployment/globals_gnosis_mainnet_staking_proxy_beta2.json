@@ -33,7 +33,7 @@
   "minStakingDeposit": "500000000000000000000",
   "livenessPeriod": "86400",
   "timeForEmissions": "2592000",
-  "agentIds": ["69"],
+  "agentIds": ["85"],
   "stakingManagerProxyAddress": "0xEfF4A1D9faF5c750d5E32754c40Cf163767C63A4",
   "moduleActivityCheckerAddress": "0xcfA10d192c3999b5CA59aD3c7512c40f1B919e01"
 }

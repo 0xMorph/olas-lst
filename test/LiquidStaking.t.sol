@@ -17,8 +17,8 @@ import {ERC20} from "@solmate/src/tokens/ERC20.sol";
 import {ERC20Token} from "@registries/contracts/test/ERC20Token.sol";
 import {ServiceRegistryL2} from "@registries/contracts/ServiceRegistryL2.sol";
 import {ServiceRegistryTokenUtility} from "@registries/contracts/ServiceRegistryTokenUtility.sol";
-import {ServiceManagerToken} from "@registries/contracts/ServiceManagerToken.sol";
-import {OperatorWhitelist} from "@registries/contracts/utils/OperatorWhitelist.sol";
+import {ServiceManager} from "@registries/contracts/ServiceManager.sol";
+import {ServiceManagerProxy} from "@registries/contracts/ServiceManagerProxy.sol";
 import {GnosisSafeMultisig} from "@registries/contracts/multisigs/GnosisSafeMultisig.sol";
 import {GnosisSafeSameAddressMultisig} from "@registries/contracts/multisigs/GnosisSafeSameAddressMultisig.sol";
 import {StakingVerifier} from "@registries/contracts/staking/StakingVerifier.sol";
@@ -50,8 +50,7 @@ contract LiquidStakingTest is Test {
     ERC20Token internal olas;
     ServiceRegistryL2 internal serviceRegistry;
     ServiceRegistryTokenUtility internal serviceRegistryTokenUtility;
-    OperatorWhitelist internal operatorWhitelist;
-    ServiceManagerToken internal serviceManagerToken;
+    ServiceManager internal serviceManager;
 
     GnosisSafe internal gnosisSafe;
     GnosisSafeL2 internal gnosisSafeL2;
@@ -134,10 +133,14 @@ contract LiquidStakingTest is Test {
         // Deploying registries contracts
         serviceRegistry = new ServiceRegistryL2("Service Registry", "SERVICE", "https://localhost/service/");
         serviceRegistryTokenUtility = new ServiceRegistryTokenUtility(address(serviceRegistry));
-        operatorWhitelist = new OperatorWhitelist(address(serviceRegistry));
-        serviceManagerToken = new ServiceManagerToken(address(serviceRegistry), address(serviceRegistryTokenUtility), address(operatorWhitelist));
-        serviceRegistry.changeManager(address(serviceManagerToken));
-        serviceRegistryTokenUtility.changeManager(address(serviceManagerToken));
+
+        serviceManager = new ServiceManager(address(serviceRegistry), address(serviceRegistryTokenUtility));
+        bytes memory proxyData = abi.encodeWithSelector(serviceManager.initialize.selector, "");
+        ServiceManagerProxy serviceManagerProxy = new ServiceManagerProxy(address(serviceManager), proxyData);
+        serviceManager = ServiceManager(address(serviceManagerProxy));
+
+        serviceRegistry.changeManager(address(serviceManager));
+        serviceRegistryTokenUtility.changeManager(address(serviceManager));
 
         // Deploying multisig contracts and multisig implementation
         gnosisSafe = new GnosisSafe();
@@ -217,7 +220,7 @@ contract LiquidStakingTest is Test {
         activityModule = new ActivityModule(address(olas), address(collector), address(multiSend));
         beacon = new Beacon(address(activityModule));
 
-        StakingManager stakingManagerImplementation = new StakingManager(address(olas), address(serviceManagerToken),
+        StakingManager stakingManagerImplementation = new StakingManager(address(olas), address(serviceManager),
             address(stakingFactory), address(safeModuleInitializer), address(gnosisSafeL2), address(beacon),
             address(collector), AGENT_ID, DEFAULT_HASH);
         initPayload = abi.encodeWithSelector(stakingManagerImplementation.initialize.selector, address(gnosisSafeMultisig),

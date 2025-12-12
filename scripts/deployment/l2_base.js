@@ -138,7 +138,7 @@ const main = async () => {
     console.log("Deploying StakingManager");
     const StakingManager = await ethers.getContractFactory("StakingManager");
     stakingManager = await StakingManager.deploy(parsedData.olasAddress, parsedData.treasuryProxyAddress,
-        parsedData.serviceManagerTokenAddress, parsedData.stakingFactoryAddress, parsedData.safeToL2SetupAddress,
+        parsedData.serviceManagerProxyAddress, parsedData.stakingFactoryAddress, parsedData.safeToL2SetupAddress,
         parsedData.gnosisSafeL2Address, parsedData.beaconAddress, parsedData.collectorProxyAddress, agentId, defaultHash);
     await stakingManager.deployed();
 
@@ -151,7 +151,7 @@ const main = async () => {
 
     await hre.run("verify:verify", {
         address: parsedData.stakingManagerAddress,
-        constructorArguments: [parsedData.olasAddress, parsedData.treasuryProxyAddress, parsedData.serviceManagerTokenAddress,
+        constructorArguments: [parsedData.olasAddress, parsedData.treasuryProxyAddress, parsedData.serviceManagerProxyAddress,
             parsedData.stakingFactoryAddress, parsedData.safeToL2SetupAddress, parsedData.gnosisSafeL2Address,
             parsedData.beaconAddress, parsedData.collectorProxyAddress, agentId, defaultHash],
     });

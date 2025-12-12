@@ -12,7 +12,8 @@ import {MultiSendCallOnly} from "@gnosis.pm/safe-contracts/contracts/libraries/M
 import {OperatorWhitelist} from "../../lib/autonolas-registries/contracts/utils/OperatorWhitelist.sol";
 import {ServiceRegistryL2} from "../../lib/autonolas-registries/contracts/ServiceRegistryL2.sol";
 import {ServiceRegistryTokenUtility} from "../../lib/autonolas-registries/contracts/ServiceRegistryTokenUtility.sol";
-import {ServiceManagerToken} from "../../lib/autonolas-registries/contracts/ServiceManagerToken.sol";
+import {ServiceManager} from "../../lib/autonolas-registries/contracts/ServiceManager.sol";
+import {ServiceManagerProxy} from "../../lib/autonolas-registries/contracts/ServiceManagerProxy.sol";
 import {GnosisSafeMultisig} from "../../lib/autonolas-registries/contracts/multisigs/GnosisSafeMultisig.sol";
 import {GnosisSafeSameAddressMultisig} from
     "../../lib/autonolas-registries/contracts/multisigs/GnosisSafeSameAddressMultisig.sol";

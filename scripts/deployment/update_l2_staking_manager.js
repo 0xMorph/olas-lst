@@ -9,8 +9,8 @@ const main = async () => {
     let stakingManager;
     let deployer;
 
-    //const globalsFile = "scripts/deployment/globals_gnosis_chiado.json";
-    const globalsFile = "scripts/deployment/globals_base_sepolia.json";
+    const globalsFile = "scripts/deployment/globals_gnosis_chiado.json";
+    //const globalsFile = "scripts/deployment/globals_base_sepolia.json";
     const dataFromJSON = fs.readFileSync(globalsFile, "utf8");
     let parsedData = JSON.parse(dataFromJSON);
 
@@ -31,7 +31,7 @@ const main = async () => {
     // Deploy new staking manager implementation
     const StakingManager = await ethers.getContractFactory("StakingManager");
     stakingManager = await StakingManager.deploy(parsedData.olasAddress, parsedData.treasuryProxyAddress,
-        parsedData.serviceManagerTokenAddress, parsedData.stakingFactoryAddress, parsedData.safeToL2SetupAddress,
+        parsedData.serviceManagerProxyAddress, parsedData.stakingFactoryAddress, parsedData.safeToL2SetupAddress,
         parsedData.gnosisSafeL2Address, parsedData.beaconAddress, parsedData.collectorProxyAddress, agentId, defaultHash);
     await stakingManager.deployed();
 
@@ -40,7 +40,7 @@ const main = async () => {
 
     await hre.run("verify:verify", {
         address: stakingManager.address,
-        constructorArguments: [parsedData.olasAddress, parsedData.treasuryProxyAddress, parsedData.serviceManagerTokenAddress,
+        constructorArguments: [parsedData.olasAddress, parsedData.treasuryProxyAddress, parsedData.serviceManagerProxyAddress,
             parsedData.stakingFactoryAddress, parsedData.safeToL2SetupAddress, parsedData.gnosisSafeL2Address,
             parsedData.beaconAddress, parsedData.collectorProxyAddress, agentId, defaultHash],
     });
