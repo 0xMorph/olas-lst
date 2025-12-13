@@ -4,8 +4,8 @@ const { ethers } = require("hardhat");
 const fs = require("fs");
 
 const main = async () => {
-    const globalsFile = "scripts/deployment/globals_gnosis_chiado.json";
-    //const globalsFile = "scripts/deployment/globals_base_sepolia.json";
+    const globalsFile = "scripts/deployment/globals_gnosis_mainnet.json";
+    //const globalsFile = "scripts/deployment/globals_base_mainnet.json";
     const dataFromJSON = fs.readFileSync(globalsFile, "utf8");
     let parsedData = JSON.parse(dataFromJSON);
 
@@ -21,15 +21,20 @@ const main = async () => {
     const deployer = new ethers.Wallet(account, provider);
     console.log("Deployer address:", deployer.address);
 
+    const stakingTokenInstanceAddress = parsedData.stakingProxyAddresses[0];
     const stakingManager = await ethers.getContractAt("StakingManager", parsedData.stakingManagerProxyAddress);
-    const stakingTokenInstance = await ethers.getContractAt("StakingTokenLocked", parsedData.stakingProxyAddress);
+    const stakingTokenInstance = await ethers.getContractAt("StakingTokenLocked", stakingTokenInstanceAddress);
 
     // Checkpoint
-    await stakingTokenInstance.checkpoint();
+    //await stakingTokenInstance.checkpoint();
 
     // Claim rewards
-    const stakedServiceIds = await stakingManager.getStakedServiceIds(parsedData.stakingProxyAddress);
-    for (let i = 0; i < stakedServiceIds.length; i++) {
+    const stakedServiceIds = await stakingManager.getStakedServiceIds(stakingTokenInstanceAddress);
+    //console.log("stakedServiceIds length", stakedServiceIds.length);
+    //console.log("stakedServiceIds:", stakedServiceIds);
+
+    const numServices = stakedServiceIds.length;
+    for (let i = 0; i < numServices; i++) {
         const serviceInfo = await stakingTokenInstance.mapServiceInfo(stakedServiceIds[i]);
         // Get multisig addresses
         const multisig = await ethers.getContractAt("GnosisSafe", serviceInfo.multisig);
