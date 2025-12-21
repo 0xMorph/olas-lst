@@ -28,7 +28,7 @@
   "stakingTokenLockedAddress": "0x9fFC6B45568Dfb1A6a0d9577c6985B4B7cD46701",
   "livenessRatio": "1",
   "metadataHash": "0x5f4f6997a24dadf186fe14ea2872d0f7da105bd28e9d1948b4284b9763700593",
-  "maxNumServices": "400",
+  "maxNumServices": "100",
   "rewardsPerSecond": "47564687975646",
   "minStakingDeposit": "500000000000000000000",
   "livenessPeriod": "86400",

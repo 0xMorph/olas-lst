@@ -49,7 +49,6 @@
   "stakingManagerProxyAddress": "0xEfF4A1D9faF5c750d5E32754c40Cf163767C63A4",
   "gnosisStakingProcessorL2Address": "0x4A26F79b9dd73a48d57ce4DF70295A875afa006c",
   "stakingProxyAddresses": [
-    "0x22FA631064A99c43196ec5f8324b73211Ced98f9",
-    "0x8f45b95d5BF34E05F753B25df1fdf84625F8C674"
+    "0x22FA631064A99c43196ec5f8324b73211Ced98f9"
   ]
 }
