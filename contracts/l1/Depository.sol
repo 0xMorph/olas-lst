@@ -121,7 +121,7 @@ contract Depository is Implementation {
     event DepositoryUnpaused();
 
     // Depository version
-    string public constant VERSION = "0.1.0";
+    string public constant VERSION = "0.2.0";
     // Stake operation
     bytes32 public constant STAKE = 0x1bcc0f4c3fad314e585165815f94ecca9b96690a26d6417d7876448a9a867a69;
     // Unstake operation
@@ -149,7 +149,8 @@ contract Depository is Implementation {
     uint256 public paused;
 
     // Reentrancy lock
-    bool transient _locked;
+    //bool transient _locked;
+    bool private _locked;
 
     // Mapping for staking model Id => staking model
     mapping(uint256 => StakingModel) public mapStakingModels;
@@ -159,6 +160,11 @@ contract Depository is Implementation {
     mapping(address => uint256) public mapAccountDeposits;
     // Mapping for account => withdraw amounts
     mapping(address => uint256) public mapAccountWithdraws;
+    
+    uint256 public totalStakedExternal;
+
+    // Mapping for chain Id => amount staked external
+    mapping(uint256 => uint256) public mapChainIdStakedExternal;
 
     /// @dev Depository constructor.
     /// @param _olas OLAS address.
@@ -773,6 +779,15 @@ contract Depository is Implementation {
         emit Unstake(msg.sender, chainIds, stakingProxies, amounts);
     }
 
+    function stakeExternal(uint256 chainId, uint256 amount) external {
+        uint256 localStakedExternal = totalStakedExternal;
+        localStakedExternal += amount;
+
+        mapChainIdStakedExternal[chainId] += amount;
+
+        totalStakedExternal = localStakedExternal;
+    }
+    
     /// @dev Close specified retired models.
     /// @notice This action is irreversible and clears up staking model info.
     /// @param chainIds Set of chain Ids with staking proxies.
