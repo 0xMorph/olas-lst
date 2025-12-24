@@ -779,13 +779,61 @@ contract Depository is Implementation {
         emit Unstake(msg.sender, chainIds, stakingProxies, amounts);
     }
 
-    function stakeExternal(uint256 chainId, uint256 amount) external {
-        uint256 localStakedExternal = totalStakedExternal;
-        localStakedExternal += amount;
+    function stakeExternal(
+        uint256[] memory chainIds,
+        address[] memory externalStakingDistributors,
+        uint256[] memory amounts,
+        bytes[] memory bridgePayloads,
+        uint256[] memory values
+    ) external {
+        // Reentrancy guard
+        if (_locked) {
+            revert ReentrancyGuard();
+        }
+        _locked = true;
 
-        mapChainIdStakedExternal[chainId] += amount;
+        // Check for owner access
+        if (msg.sender != owner) {
+            revert UnauthorizedAccount(msg.sender);
+        }
 
-        totalStakedExternal = localStakedExternal;
+        // Check array lengths
+        if (
+            chainIds.length == 0 || chainIds.length != externalStakingDistributors.length
+            || chainIds.length != bridgePayloads.length || chainIds.length != values.length
+        ) {
+            revert WrongArrayLength();
+        }
+
+        uint256[] memory localStakedExternals = new uint256[](chainIds.length);
+        uint256 totalAmount;
+
+        // Traverse all chain Ids
+        for (uint256 i = 0; i < chainIds.length; ++i) {
+            // TODO check chain Ids for increasing order
+            localStakedExternals[i] = mapChainIdStakedExternal[chainIds[i]] + amounts[i];
+            totalAmount += amounts[i];
+
+            mapChainIdStakedExternal[chainIds[i]] = localStakedExternals[i];
+        }
+
+        // Get actual stOLAS reserve balance
+        uint256 stReserveBalance = IST(st).reserveBalance();
+
+        // Check if reserve balance has requested amount
+        if (totalAmount > stReserveBalance) {
+            revert Overflow(totalAmount, stReserveBalance);
+        }
+
+        // Adjust reserve balance
+        stReserveBalance -= totalAmount;
+
+        // Pull required funds from stOLAS and record correct balances
+        IST(st).syncStakeBalances(stReserveBalance, totalAmount, totalAmount, false);
+
+        _operationSendMessage(chainIds, externalStakingDistributors, amounts, bridgePayloads, values, STAKE, msg.sender);
+
+        // event
     }
     
     /// @dev Close specified retired models.

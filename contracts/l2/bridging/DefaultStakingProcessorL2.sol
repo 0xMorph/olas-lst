@@ -90,6 +90,8 @@ abstract contract DefaultStakingProcessorL2 is IBridgeErrors {
     address public immutable olas;
     // Staking manager address
     address public immutable stakingManager;
+    // External staking distributor address
+    address public immutable externalStakingDistributor;
     // Collector address
     address public immutable collector;
     // L2 Relayer address that receives the message across the bridge from the source L1 network
@@ -115,6 +117,7 @@ abstract contract DefaultStakingProcessorL2 is IBridgeErrors {
     /// @dev DefaultStakerL2 constructor.
     /// @param _olas OLAS token address on L2.
     /// @param _stakingManager StakingManager address.
+    /// @param _externalStakingDistributor ExternalStakingDistributor address.
     /// @param _collector Collector address.
     /// @param _l2TokenRelayer L2 token relayer bridging contract address.
     /// @param _l2MessageRelayer L2 message relayer bridging contract address.
@@ -122,6 +125,7 @@ abstract contract DefaultStakingProcessorL2 is IBridgeErrors {
     constructor(
         address _olas,
         address _stakingManager,
+        address _externalStakingDistributor,
         address _collector,
         address _l2TokenRelayer,
         address _l2MessageRelayer,
@@ -130,7 +134,7 @@ abstract contract DefaultStakingProcessorL2 is IBridgeErrors {
     ) {
         // Check for zero addresses
         if (
-            _olas == address(0) || _stakingManager == address(0) || _collector == address(0)
+            _olas == address(0) || _stakingManager == address(0) || _externalStakingDistributor == address(0) || _collector == address(0)
                 || _l2TokenRelayer == address(0) || _l2MessageRelayer == address(0) || _l1DepositProcessor == address(0)
         ) {
             revert ZeroAddress();
@@ -149,6 +153,7 @@ abstract contract DefaultStakingProcessorL2 is IBridgeErrors {
         // Immutable parameters assignment
         olas = _olas;
         stakingManager = _stakingManager;
+        externalStakingDistributor = _externalStakingDistributor;
         collector = _collector;
         l2TokenRelayer = _l2TokenRelayer;
         l2MessageRelayer = _l2MessageRelayer;
