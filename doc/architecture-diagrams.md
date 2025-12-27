@@ -93,14 +93,14 @@ sequenceDiagram
 
   %% A) Deposit -> Mint stOLAS -> STAKE
   U->>D: deposit OLAS
-  D->>V: deposit / topUp
+  D->>V: deposit / topUp OLAS
   V-->>U: mint stOLAS (pps-based)
   D->>BP1: bridge OLAS + msg (STAKE)
   BP1->>SM: stake / accumulate OLAS until stake deposit is reached
   SM->>STL: stake service
 
   %% B) Rewards (REWARD -> Distributor)
-  S->>SM: deliver KPIs to produce rewards
+  S->>STL: deliver KPIs to produce rewards
   SM->>STL: update accrual
   STL->>Coll: send REWARD op
   Coll->>BP2: bridge OLAS
