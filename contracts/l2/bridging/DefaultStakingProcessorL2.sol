@@ -29,6 +29,18 @@ interface IStakingManager {
     function unstake(address stakingProxy, uint256 amount, bytes32 operation) external;
 }
 
+interface IExternalStakingDistributor {
+    /// @dev Deposits OLAS for further staking.
+    /// @param amount OLAS amount.
+    /// @param operation Stake operation type.
+    function deposit(uint256 amount, bytes32 operation) external;
+
+    /// @dev Requests withdraw via specified unstake operation.
+    /// @param amount Unstake amount.
+    /// @param operation Unstake operation type.
+    function withdraw(uint256 amount, bytes32 operation) external;
+}
+
 // Necessary ERC20 token interface
 interface IToken {
     /// @dev Sets `amount` as the allowance of `spender` over the caller's tokens.
@@ -199,12 +211,21 @@ abstract contract DefaultStakingProcessorL2 is IBridgeErrors {
 
                 // Check the OLAS balance and the contract being unpaused
                 if (olasBalance >= amount) {
-                    // Approve OLAS for stakingManager
-                    IToken(olas).approve(stakingManager, amount);
+                    if (target == externalStakingDistributor) {
+                        // Approve OLAS for externalStakingDistributor
+                        IToken(olas).approve(externalStakingDistributor, amount);
 
-                    // This is a low level call since it must never revert
-                    bytes memory stakeData = abi.encodeCall(IStakingManager.stake, (target, amount, operation));
-                    (success,) = stakingManager.call(stakeData);
+                        // This is a low level call since it must never revert
+                        bytes memory stakeData = abi.encodeCall(IExternalStakingDistributor.deposit, (amount, operation));
+                        (success,) = externalStakingDistributor.call(stakeData);
+                    } else {
+                        // Approve OLAS for stakingManager
+                        IToken(olas).approve(stakingManager, amount);
+
+                        // This is a low level call since it must never revert
+                        bytes memory stakeData = abi.encodeCall(IStakingManager.stake, (target, amount, operation));
+                        (success,) = stakingManager.call(stakeData);
+                    }
                 } else {
                     // Insufficient OLAS balance
                     status = RequestStatus.INSUFFICIENT_OLAS_BALANCE;
@@ -215,9 +236,14 @@ abstract contract DefaultStakingProcessorL2 is IBridgeErrors {
             }
         } else if (operation == UNSTAKE || operation == UNSTAKE_RETIRED) {
             // Note that if UNSTAKE* is requested, it must be finalized in any case since changes are recorded on L1
-            // This is a low level call since it must never revert
-            bytes memory unstakeData = abi.encodeCall(IStakingManager.unstake, (target, amount, operation));
-            (success,) = stakingManager.call(unstakeData);
+            // These are low level calls since they must never revert
+            if (target == externalStakingDistributor) {
+                bytes memory unstakeData = abi.encodeCall(IExternalStakingDistributor.withdraw, (amount, operation));
+                (success,) = stakingManager.call(unstakeData);
+            } else {
+                bytes memory unstakeData = abi.encodeCall(IStakingManager.unstake, (target, amount, operation));
+                (success,) = stakingManager.call(unstakeData);
+            }
         } else {
             // Unsupported operation type
             status = RequestStatus.UNSUPPORTED_OPERATION_TYPE;

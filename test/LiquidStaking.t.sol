@@ -234,8 +234,9 @@ contract LiquidStakingTest is Test {
         bridgeRelayer = new BridgeRelayer(address(olas));
         gnosisDepositProcessorL1 = new GnosisDepositProcessorL1(address(olas), address(depository), address(bridgeRelayer),
             address(bridgeRelayer));
-        gnosisStakingProcessorL2 = new GnosisStakingProcessorL2(address(olas), address(stakingManager), address(collector),
-            address(bridgeRelayer), address(bridgeRelayer), address(gnosisDepositProcessorL1), CHAIN_ID);
+        // TODO external staking distributor
+        gnosisStakingProcessorL2 = new GnosisStakingProcessorL2(address(olas), address(stakingManager), address(stakingManager),
+            address(collector), address(bridgeRelayer), address(bridgeRelayer), address(gnosisDepositProcessorL1), CHAIN_ID);
 
         // changeStakingManager for collector
         collector.changeStakingManager(address(stakingManager));

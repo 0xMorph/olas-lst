@@ -51,6 +51,7 @@ contract BaseStakingProcessorL2 is DefaultStakingProcessorL2 {
     /// @dev GnosisTargetDispenserL2 constructor.
     /// @param _olas OLAS token address.
     /// @param _stakingManager StakingManager address.
+    /// @param _externalStakingDistributor ExternalStakingDistributor address.
     /// @param _collector Collector address.
     /// @param _l2TokenRelayer L2 token relayer bridging contract address.
     /// @param _l2MessageRelayer L2 message relayer bridging contract address (AMBHomeProxy).
@@ -59,6 +60,7 @@ contract BaseStakingProcessorL2 is DefaultStakingProcessorL2 {
     constructor(
         address _olas,
         address _stakingManager,
+        address _externalStakingDistributor,
         address _collector,
         address _l2TokenRelayer,
         address _l2MessageRelayer,
@@ -68,6 +70,7 @@ contract BaseStakingProcessorL2 is DefaultStakingProcessorL2 {
         DefaultStakingProcessorL2(
             _olas,
             _stakingManager,
+            _externalStakingDistributor,
             _collector,
             _l2TokenRelayer,
             _l2MessageRelayer,
