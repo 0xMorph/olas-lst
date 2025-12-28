@@ -118,8 +118,16 @@ contract Depository is Implementation {
     event Unstake(address indexed sender, uint256[] chainIds, address[] stakingProxies, uint256[] amounts);
     event Retired(uint256[] chainIds, address[] stakingProxies);
     event SetExternalStakingDistributorChainIds(address[] externalStakingDistributors, uint256[] chainIds);
-    event StakeExternal(address indexed sender, uint256[] chainIds, address[] externalStakingDistributors, uint256[] amounts);
-    event UnstakeExternal(address indexed sender, uint256[] chainIds, address[] externalStakingDistributors, uint256[] amounts, bytes32 operation);
+    event StakeExternal(
+        address indexed sender, uint256[] chainIds, address[] externalStakingDistributors, uint256[] amounts
+    );
+    event UnstakeExternal(
+        address indexed sender,
+        uint256[] chainIds,
+        address[] externalStakingDistributors,
+        uint256[] amounts,
+        bytes32 operation
+    );
     event DepositoryPaused();
     event DepositoryUnpaused();
 
@@ -162,7 +170,7 @@ contract Depository is Implementation {
     mapping(address => uint256) public mapAccountDeposits;
     // Mapping for account => withdraw amounts
     mapping(address => uint256) public mapAccountWithdraws;
-    
+
     uint256 public totalStakedExternal;
 
     // Mapping for chain Id => (amount deposited : address of staked external)
@@ -783,7 +791,7 @@ contract Depository is Implementation {
 
         emit Unstake(msg.sender, chainIds, stakingProxies, amounts);
     }
-    
+
     /// @dev Close specified retired models.
     /// @notice This action is irreversible and clears up staking model info.
     /// @param chainIds Set of chain Ids with staking proxies.
@@ -823,7 +831,10 @@ contract Depository is Implementation {
     /// @notice Overwriting existing staking distributor addresses is only possible if their balances are zero.
     /// @param externalStakingDistributors Set of external staking distributor contract addresses on L2.
     /// @param chainIds Set of corresponding L2 chain Ids.
-    function setExternalStakingDistributorChainIds(address[] memory externalStakingDistributors, uint256[] memory chainIds) external {
+    function setExternalStakingDistributorChainIds(
+        address[] memory externalStakingDistributors,
+        uint256[] memory chainIds
+    ) external {
         // Check for the ownership
         if (msg.sender != owner) {
             revert OwnerOnly(msg.sender, owner);
@@ -882,7 +893,7 @@ contract Depository is Implementation {
         // Check array lengths
         if (
             chainIds.length == 0 || chainIds.length != amounts.length || chainIds.length != bridgePayloads.length
-            || chainIds.length != values.length
+                || chainIds.length != values.length
         ) {
             revert WrongArrayLength();
         }
@@ -895,7 +906,8 @@ contract Depository is Implementation {
         for (uint256 i = 0; i < chainIds.length; ++i) {
             // TODO check chain Ids for increasing order
             uint256 stakedExternal = mapChainIdStakedExternals[chainIds[i]];
-            (localStakedExternals[i], externalStakingDistributors[i]) = ((stakedExternal >> 160), address(uint160(stakedExternal)));
+            (localStakedExternals[i], externalStakingDistributors[i]) =
+            ((stakedExternal >> 160), address(uint160(stakedExternal)));
 
             // This should never happen
             if (externalStakingDistributors[i] == address(0)) {
@@ -907,7 +919,8 @@ contract Depository is Implementation {
             totalAmount += amounts[i];
 
             // Update staked external amount
-            mapChainIdStakedExternals[chainIds[i]] = uint256(uint160(externalStakingDistributors[i])) | (localStakedExternals[i] << 160);
+            mapChainIdStakedExternals[chainIds[i]] =
+                uint256(uint160(externalStakingDistributors[i])) | (localStakedExternals[i] << 160);
         }
 
         // Get actual stOLAS reserve balance
@@ -967,7 +980,7 @@ contract Depository is Implementation {
         // Check array lengths
         if (
             chainIds.length == 0 || chainIds.length != amounts.length || chainIds.length != bridgePayloads.length
-            || chainIds.length != values.length
+                || chainIds.length != values.length
         ) {
             revert WrongArrayLength();
         }
@@ -982,7 +995,8 @@ contract Depository is Implementation {
         for (uint256 i = 0; i < chainIds.length; ++i) {
             // TODO check chain Ids for increasing order
             uint256 stakedExternal = mapChainIdStakedExternals[chainIds[i]];
-            (localStakedExternals[i], externalStakingDistributors[i]) = ((stakedExternal >> 160), address(uint160(stakedExternal)));
+            (localStakedExternals[i], externalStakingDistributors[i]) =
+            ((stakedExternal >> 160), address(uint160(stakedExternal)));
 
             // This should never happen
             if (externalStakingDistributors[i] == address(0)) {
@@ -1002,7 +1016,8 @@ contract Depository is Implementation {
             unstakeAmount += amounts[i];
 
             // Update staked external amount
-            mapChainIdStakedExternals[chainIds[i]] = uint256(uint160(externalStakingDistributors[i])) | (localStakedExternals[i] << 160);
+            mapChainIdStakedExternals[chainIds[i]] =
+                uint256(uint160(externalStakingDistributors[i])) | (localStakedExternals[i] << 160);
         }
 
         if (operation == UNSTAKE) {

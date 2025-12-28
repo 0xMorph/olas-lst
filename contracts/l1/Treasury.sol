@@ -217,11 +217,13 @@ contract Treasury is Implementation, ERC6909 {
                 }
 
                 // First, unstake from external proxies
-                IDepository(depository).unstakeExternal(chainIds[0], externalAmounts, bridgePayloads[0], values[0], msg.sender);
+                IDepository(depository)
+                    .unstakeExternal(chainIds[0], externalAmounts, bridgePayloads[0], values[0], msg.sender);
             }
 
             // Second, unstake from LST staking proxies, if still required
-            IDepository(depository).unstake(withdrawDiff, chainIds[1], stakingProxies, bridgePayloads[1], values[1], msg.sender);
+            IDepository(depository)
+                .unstake(withdrawDiff, chainIds[1], stakingProxies, bridgePayloads[1], values[1], msg.sender);
         }
 
         emit WithdrawRequestInitiated(msg.sender, requestId, stAmount, olasAmount, withdrawTime);

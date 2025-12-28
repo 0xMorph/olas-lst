@@ -146,8 +146,9 @@ abstract contract DefaultStakingProcessorL2 is IBridgeErrors {
     ) {
         // Check for zero addresses
         if (
-            _olas == address(0) || _stakingManager == address(0) || _externalStakingDistributor == address(0) || _collector == address(0)
-                || _l2TokenRelayer == address(0) || _l2MessageRelayer == address(0) || _l1DepositProcessor == address(0)
+            _olas == address(0) || _stakingManager == address(0) || _externalStakingDistributor == address(0)
+                || _collector == address(0) || _l2TokenRelayer == address(0) || _l2MessageRelayer == address(0)
+                || _l1DepositProcessor == address(0)
         ) {
             revert ZeroAddress();
         }
@@ -216,7 +217,8 @@ abstract contract DefaultStakingProcessorL2 is IBridgeErrors {
                         IToken(olas).approve(externalStakingDistributor, amount);
 
                         // This is a low level call since it must never revert
-                        bytes memory stakeData = abi.encodeCall(IExternalStakingDistributor.deposit, (amount, operation));
+                        bytes memory stakeData =
+                            abi.encodeCall(IExternalStakingDistributor.deposit, (amount, operation));
                         (success,) = externalStakingDistributor.call(stakeData);
                     } else {
                         // Approve OLAS for stakingManager

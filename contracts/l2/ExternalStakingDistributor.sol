@@ -77,8 +77,8 @@ interface ISafe {
     /// @param data Data payload of module transaction.
     /// @param operation Operation type of module transaction.
     function execTransactionFromModule(address to, uint256 value, bytes memory data, Operation operation)
-    external
-    returns (bool success);
+        external
+        returns (bool success);
 
     /// @dev Allows to swap/replace an owner from the Safe with another address.
     ///      This can only be done via a Safe transaction.
@@ -86,11 +86,7 @@ interface ISafe {
     /// @param prevOwner Owner that pointed to the owner to be replaced in the linked list
     /// @param oldOwner Owner address to be replaced.
     /// @param newOwner New owner address.
-    function swapOwner(
-        address prevOwner,
-        address oldOwner,
-        address newOwner
-    ) external;
+    function swapOwner(address prevOwner, address oldOwner, address newOwner) external;
 }
 
 // SafeMultisigWithRecoveryModule interface
@@ -100,11 +96,7 @@ interface ISafeMultisigWithRecoveryModule {
     /// @param threshold Number of required confirmations for a multisig transaction.
     /// @param data Encoded data related to the creation of a chosen multisig.
     /// @return multisig Address of a created multisig.
-    function create(
-        address[] memory owners,
-        uint256 threshold,
-        bytes memory data
-    ) external returns (address multisig);
+    function create(address[] memory owners, uint256 threshold, bytes memory data) external returns (address multisig);
 }
 
 /// @dev Zero value.
@@ -132,12 +124,27 @@ error ExecutionFailed(address target, bytes payload);
 
 /// @title ExternalStakingDistributor - Smart contract for distributing OLAS across external staking contracts
 contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
-    event RewardFactorsChanged(uint256 collectorRewardFactor, uint256 protocolRewardFactor, uint256 curatingAgentRewardFactor);
+    event RewardFactorsChanged(
+        uint256 collectorRewardFactor, uint256 protocolRewardFactor, uint256 curatingAgentRewardFactor
+    );
     event StakingProcessorL2Updated(address indexed l2StakingProcessor);
-    event ExternalServiceStaked(address indexed sender, address indexed stakingProxy, uint256 indexed serviceId,
-        uint256 agentId, bytes32 configHash, uint256 stakingDeposit, uint256 stakedBalance);
-    event ExternalServiceUnstaked(address indexed sender, address indexed stakingProxy, uint256 indexed serviceId,
-        uint256 stakingDeposit, uint256 stakedBalance, uint256 unstakeRequestedAmount);
+    event ExternalServiceStaked(
+        address indexed sender,
+        address indexed stakingProxy,
+        uint256 indexed serviceId,
+        uint256 agentId,
+        bytes32 configHash,
+        uint256 stakingDeposit,
+        uint256 stakedBalance
+    );
+    event ExternalServiceUnstaked(
+        address indexed sender,
+        address indexed stakingProxy,
+        uint256 indexed serviceId,
+        uint256 stakingDeposit,
+        uint256 stakedBalance,
+        uint256 unstakeRequestedAmount
+    );
     event Deployed(uint256 indexed serviceId, address indexed multisig);
     event RewardsDistributed(uint256 collectorAmount, uint256 protocolAmount, uint256 curatingAgentAmount);
     event SetStakingProxyTypes(address[] stakingProxies, bytes32[] proxyTypes);
@@ -243,7 +250,11 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
     /// @param _collectorRewardFactor Collector reward factor.
     /// @param _protocolRewardFactor Protocol reward factor.
     /// @param _curatingAgentRewardFactor Curating agent reward factor.
-    function initialize(uint256 _collectorRewardFactor, uint256 _protocolRewardFactor, uint256 _curatingAgentRewardFactor) external {
+    function initialize(
+        uint256 _collectorRewardFactor,
+        uint256 _protocolRewardFactor,
+        uint256 _curatingAgentRewardFactor
+    ) external {
         if (owner != address(0)) {
             revert AlreadyInitialized();
         }
@@ -256,7 +267,11 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
     /// @param _collectorRewardFactor Collector reward factor.
     /// @param _protocolRewardFactor Protocol reward factor.
     /// @param _curatingAgentRewardFactor Curating agent reward factor.
-    function changeRewardFactors(uint256 _collectorRewardFactor, uint256 _protocolRewardFactor, uint256 _curatingAgentRewardFactor) public {
+    function changeRewardFactors(
+        uint256 _collectorRewardFactor,
+        uint256 _protocolRewardFactor,
+        uint256 _curatingAgentRewardFactor
+    ) public {
         if (owner != address(0)) {
             revert AlreadyInitialized();
         }
@@ -264,7 +279,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         // Check for MAX_REWARD_FACTOR overflow
         uint256 totalFactor = _collectorRewardFactor + _protocolRewardFactor + _curatingAgentRewardFactor;
         if (totalFactor > MAX_REWARD_FACTOR) {
-            revert Overflow (totalFactor, MAX_REWARD_FACTOR);
+            revert Overflow(totalFactor, MAX_REWARD_FACTOR);
         }
 
         collectorRewardFactor = _collectorRewardFactor;
@@ -305,28 +320,29 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         address[] memory owners = new address[](1);
         owners[0] = address(this);
         bytes memory data = abi.encode(fallbackHandler, randomNonce);
-        address multisig = ISafeMultisigWithRecoveryModule(safeMultisigWithRecoveryModule).create(owners, THRESHOLD, data);
+        address multisig =
+            ISafeMultisigWithRecoveryModule(safeMultisigWithRecoveryModule).create(owners, THRESHOLD, data);
 
         // Enable self as module
         bytes32 r = bytes32(uint256(uint160(address(this))));
         bytes memory signature = abi.encodePacked(r, bytes32(0), uint8(1));
 
-//        // TODO multisend maybe?
-//        // Encode enable module function call
-//        data = abi.encodeCall(ISafe.enableModule, (address(this)));
-//
-//        // Execute multisig transaction
-//        ISafe(multisig).execTransaction(
-//            multisig, 0, data, ISafe.Operation.Call, 0, 0, 0, address(0), payable(address(0)), signature
-//        );
-//
-//        // Encode swap owner function call
-//        data = abi.encodeCall(ISafe.swapOwner, (address(0x1), address(this), agentInstance));
-//
-//        // Execute multisig transaction
-//        ISafe(multisig).execTransaction(
-//            multisig, 0, data, ISafe.Operation.Call, 0, 0, 0, address(0), payable(address(0)), signature
-//        );
+        //        // TODO multisend maybe?
+        //        // Encode enable module function call
+        //        data = abi.encodeCall(ISafe.enableModule, (address(this)));
+        //
+        //        // Execute multisig transaction
+        //        ISafe(multisig).execTransaction(
+        //            multisig, 0, data, ISafe.Operation.Call, 0, 0, 0, address(0), payable(address(0)), signature
+        //        );
+        //
+        //        // Encode swap owner function call
+        //        data = abi.encodeCall(ISafe.swapOwner, (address(0x1), address(this), agentInstance));
+        //
+        //        // Execute multisig transaction
+        //        ISafe(multisig).execTransaction(
+        //            multisig, 0, data, ISafe.Operation.Call, 0, 0, 0, address(0), payable(address(0)), signature
+        //        );
 
         // Encode enable module function call
         data = abi.encodeCall(ISafe.enableModule, (address(this)));
@@ -336,17 +352,26 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         // Encode swap owner function call
         data = abi.encodeCall(ISafe.swapOwner, (address(0x1), address(this), agentInstance));
         // Concatenate multi send payload with the packed data of (operation, multisig address, value(0), payload length, payload)
-        msPayload = bytes.concat(
-            msPayload, abi.encodePacked(ISafe.Operation.Call, multisig, uint256(0), data.length, data)
-        );
+        msPayload =
+            bytes.concat(msPayload, abi.encodePacked(ISafe.Operation.Call, multisig, uint256(0), data.length, data));
 
         // Multisend call to execute all the payloads
         msPayload = abi.encodeCall(IMultiSend.multiSend, (msPayload));
 
         // Execute multisig transaction
-        bool success = ISafe(multisig).execTransaction(
-            multiSend, 0, msPayload, ISafe.Operation.DelegateCall, 0, 0, 0, address(0), payable(address(0)), signature
-        );
+        bool success = ISafe(multisig)
+            .execTransaction(
+                multiSend,
+                0,
+                msPayload,
+                ISafe.Operation.DelegateCall,
+                0,
+                0,
+                0,
+                address(0),
+                payable(address(0)),
+                signature
+            );
 
         // Check for success
         if (!success) {
@@ -386,8 +411,8 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
 
         if (createService) {
             // Create a service owned by this contract
-            serviceId =
-                IService(serviceManager).create(address(this), olas, configHash, agentIds, agentParams, uint32(THRESHOLD));
+            serviceId = IService(serviceManager)
+                .create(address(this), olas, configHash, agentIds, agentParams, uint32(THRESHOLD));
         } else {
             // Update service owned by this contract
             IService(serviceManager).update(olas, configHash, agentIds, agentParams, uint32(THRESHOLD), serviceId);
@@ -446,7 +471,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
             uint256 collectorAmount = (balance * collectorRewardFactor) / MAX_REWARD_FACTOR;
             uint256 protocolAmount = (balance * protocolRewardFactor) / MAX_REWARD_FACTOR;
             uint256 curatingAgentAmount = balance - collectorAmount - protocolAmount;
-            
+
             // Encode OLAS approve function call for collector
             bytes memory data = abi.encodeCall(IToken.approve, (collector, collectorAmount + protocolAmount));
             // MultiSend payload with the packed data of (operation, multisig address, value(0), payload length, payload)
@@ -469,9 +494,8 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
             // Encode OLAS transfer function call for curating agent
             data = abi.encodeCall(IToken.transfer, (curatingAgent, curatingAgentAmount));
             // Concatenate multi send payload with the packed data of (operation, multisig address, value(0), payload length, payload)
-            msPayload = bytes.concat(
-                msPayload, abi.encodePacked(ISafe.Operation.Call, olas, uint256(0), data.length, data)
-            );
+            msPayload =
+                bytes.concat(msPayload, abi.encodePacked(ISafe.Operation.Call, olas, uint256(0), data.length, data));
 
             // Multisend call to execute all the payloads
             msPayload = abi.encodeCall(IMultiSend.multiSend, (msPayload));
@@ -495,13 +519,9 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
     /// @param agentId Agent Blueprint Id.
     /// @param configHash Config hash.
     /// @param agentInstance Agent instance address.
-    function stake(
-        address stakingProxy,
-        uint256 serviceId,
-        uint256 agentId,
-        bytes32 configHash,
-        address agentInstance
-    ) external {
+    function stake(address stakingProxy, uint256 serviceId, uint256 agentId, bytes32 configHash, address agentInstance)
+        external
+    {
         // Reentrancy guard
         if (_locked > 1) {
             revert ReentrancyGuard();
@@ -542,7 +562,9 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
 
         serviceId = _deployAndStake(stakingProxy, minStakingDeposit, serviceId, agentId, configHash, agentInstance);
 
-        emit ExternalServiceStaked(msg.sender, stakingProxy, serviceId, agentId, configHash, fullStakingDeposit, localStakedBalance);
+        emit ExternalServiceStaked(
+            msg.sender, stakingProxy, serviceId, agentId, configHash, fullStakingDeposit, localStakedBalance
+        );
 
         _locked = 1;
     }
@@ -615,7 +637,9 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         // Request top-up by Collector for a specific unstake operation
         ICollector(collector).topUpBalance(amount, operation);
 
-        emit ExternalServiceUnstaked(msg.sender, stakingProxy, serviceId, fullStakingDeposit, localStakedBalance, unstakeRequestedAmount);
+        emit ExternalServiceUnstaked(
+            msg.sender, stakingProxy, serviceId, fullStakingDeposit, localStakedBalance, unstakeRequestedAmount
+        );
 
         _locked = 1;
     }
@@ -719,7 +743,10 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
     /// @param stakingProxies Set of staking proxy addresses.
     /// @param serviceIds Corresponding set if service Ids.
     /// @return rewards Set of staking rewards.
-    function claim(address[] memory stakingProxies, uint256[] memory serviceIds) external returns (uint256[] memory rewards) {
+    function claim(address[] memory stakingProxies, uint256[] memory serviceIds)
+        external
+        returns (uint256[] memory rewards)
+    {
         // Reentrancy guard
         if (_locked > 1) {
             revert ReentrancyGuard();
