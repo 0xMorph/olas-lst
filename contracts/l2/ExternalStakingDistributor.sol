@@ -2,7 +2,6 @@
 pragma solidity ^0.8.30;
 
 import {ERC721TokenReceiver} from "../../lib/autonolas-registries/lib/solmate/src/tokens/ERC721.sol";
-import {BeaconProxy} from "../BeaconProxy.sol";
 import {Implementation, OwnerOnly, ZeroAddress} from "../Implementation.sol";
 import {IService} from "../interfaces/IService.sol";
 import {IStaking} from "../interfaces/IStaking.sol";
@@ -138,14 +137,14 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
     event ExternalServiceStaked(address indexed sender, address indexed stakingProxy, uint256 indexed serviceId,
         uint256 agentId, bytes32 configHash, uint256 stakingDeposit, uint256 stakedBalance);
     event ExternalServiceUnstaked(address indexed sender, address indexed stakingProxy, uint256 indexed serviceId,
-        uint256 stakingDeposit, uint256 stakedBalance);
-    event CreatedAndDeployed(uint256 indexed serviceId, address indexed multisig);
-    event ReDeployed(uint256 indexed serviceId, address indexed multisig);
+        uint256 stakingDeposit, uint256 stakedBalance, uint256 unstakeRequestedAmount);
+    event Deployed(uint256 indexed serviceId, address indexed multisig);
     event RewardsDistributed(uint256 collectorAmount, uint256 protocolAmount, uint256 curatingAgentAmount);
     event SetStakingProxyTypes(address[] stakingProxies, bytes32[] proxyTypes);
-    event Deposit(address indexed sender, uint256 amount);
+    event Deposit(address indexed sender, uint256 amount, bytes32 operation);
     event Withdraw(address indexed sender, uint256 amount, bytes32 operation, uint256 unstakeRequestedAmount);
     event Claimed(address[] stakingProxies, uint256[] serviceIds, uint256[] rewards);
+    event NativeTokenReceived(uint256 amount);
 
     // Staking Manager version
     string public constant VERSION = "0.1.0";
@@ -177,8 +176,6 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
     address public immutable fallbackHandler;
     // Multisend contract address
     address public immutable multiSend;
-    // Staking factory address
-    address public immutable stakingFactory;
     // OLAS collector address
     address public immutable collector;
 
@@ -212,7 +209,6 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
     /// @param _safeSameAddressMultisig Safe same address multisig processing contract address.
     /// @param _fallbackHandler Safe fallback handler address.
     /// @param _multiSend Multisend contract address.
-    /// @param _stakingFactory Staking factory address.
     /// @param _collector OLAS collector address.
     constructor(
         address _olas,
@@ -221,14 +217,13 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         address _safeSameAddressMultisig,
         address _fallbackHandler,
         address _multiSend,
-        address _stakingFactory,
         address _collector
     ) {
         // Check for zero addresses
         if (
             _olas == address(0) || _serviceManager == address(0) || _safeMultisigWithRecoveryModule == address(0)
                 || _safeSameAddressMultisig == address(0) || _fallbackHandler == address(0) || _multiSend == address(0)
-                || _stakingFactory == address(0) || _collector == address(0)
+                || _collector == address(0)
         ) {
             revert ZeroAddress();
         }
@@ -239,7 +234,6 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         safeSameAddressMultisig = _safeSameAddressMultisig;
         fallbackHandler = _fallbackHandler;
         multiSend = _multiSend;
-        stakingFactory = _stakingFactory;
         collector = _collector;
         serviceRegistry = IService(serviceManager).serviceRegistry();
         serviceRegistryTokenUtility = IService(serviceManager).serviceRegistryTokenUtility();
@@ -351,7 +345,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
 
         // Execute multisig transaction
         bool success = ISafe(multisig).execTransaction(
-            multisig, 0, msPayload, ISafe.Operation.DelegateCall, 0, 0, 0, address(0), payable(address(0)), signature
+            multiSend, 0, msPayload, ISafe.Operation.DelegateCall, 0, 0, 0, address(0), payable(address(0)), signature
         );
 
         // Check for success
@@ -360,90 +354,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         }
     }
 
-    /// @dev Creates and deploys a service.
-    /// @param minStakingDeposit Min staking deposit value.
-    /// @param agentId Agent Blueprint Id.
-    /// @param configHash Config hash.
-    /// @param agentInstance Agent instance address.
-    /// @return serviceId Minted service Id.
-    /// @return multisig Service multisig.
-    function _createAndDeploy(
-        uint256 minStakingDeposit,
-        uint256 agentId,
-        bytes32 configHash,
-        address agentInstance
-    )
-        internal
-        returns (uint256 serviceId, address multisig)
-    {
-        // Set agent params
-        IService.AgentParams[] memory agentParams = new IService.AgentParams[](NUM_AGENT_INSTANCES);
-        agentParams[0] = IService.AgentParams(uint32(NUM_AGENT_INSTANCES), uint96(minStakingDeposit));
-
-        // Set agent Ids
-        uint32[] memory agentIds = new uint32[](NUM_AGENT_INSTANCES);
-        agentIds[0] = uint32(agentId);
-
-        // Set agent instances as [agentInstance]
-        address[] memory instances = new address[](NUM_AGENT_INSTANCES);
-
-        // Assign agent instance address
-        instances[0] = agentInstance;
-
-        // Create a service owned by this contract
-        serviceId =
-            IService(serviceManager).create(address(this), olas, configHash, agentIds, agentParams, uint32(THRESHOLD));
-
-        // Activate registration (1 wei as a deposit wrapper)
-        IService(serviceManager).activateRegistration{value: 1}(serviceId);
-
-        // Register msg.sender as an agent instance (numAgentInstances wei as a bond wrapper)
-        IService(serviceManager).registerAgents{value: NUM_AGENT_INSTANCES}(serviceId, instances, agentIds);
-
-        // Create multisig with address(this) as module and swap owners to agentInstance
-        _createMultisigWithSelfAsModule(agentInstance);
-
-        // Deploy service via same address multisig
-        multisig = IService(serviceManager).deploy(serviceId, safeSameAddressMultisig, abi.encode(serviceId));
-    }
-
-    /// @dev Stakes the already deployed service.
-    /// @param stakingProxy Staking proxy address.
-    /// @param serviceId Service Id.
-    function _stake(address stakingProxy, uint256 serviceId) internal {
-        // Approve service NFT for the staking instance
-        INFToken(serviceRegistry).approve(stakingProxy, serviceId);
-
-        // Stake the service
-        IStaking(stakingProxy).stake(serviceId);
-    }
-
-    /// @dev Creates and deploys a service, and stakes it with a specified staking contract.
-    /// @notice The service cannot be registered again if it is currently staked.
-    /// @param stakingProxy Corresponding staking instance address.
-    /// @param minStakingDeposit Min staking deposit value.
-    /// @param agentId Agent Blueprint Id.
-    /// @param configHash Config hash.
-    /// @param agentInstance Agent instance address.
-    function _createAndStake(
-        address stakingProxy,
-        uint256 minStakingDeposit,
-        uint256 agentId,
-        bytes32 configHash,
-        address agentInstance
-    ) internal returns (uint256 serviceId) {
-        address multisig;
-
-        // Create and deploy service
-        (serviceId, multisig) = _createAndDeploy(minStakingDeposit, agentId, configHash, agentInstance);
-
-        // Stake the service
-        _stake(stakingProxy, serviceId);
-
-        emit CreatedAndDeployed(serviceId, multisig);
-    }
-
-    /// @dev Stakes the already deployed service.
+    /// @dev Creates and / or (re-)deploys service and stakes it.
     /// @param stakingProxy Staking proxy address.
     /// @param minStakingDeposit Min staking deposit value.
     /// @param serviceId Service Id.
@@ -457,20 +368,30 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         uint256 agentId,
         bytes32 configHash,
         address agentInstance
-    ) internal {
+    ) internal returns (uint256) {
+        // Get service creation flag
+        bool createService = serviceId > 0 ? true : false;
+
         // Set agent params
         IService.AgentParams[] memory agentParams = new IService.AgentParams[](NUM_AGENT_INSTANCES);
         agentParams[0] = IService.AgentParams(uint32(NUM_AGENT_INSTANCES), uint96(minStakingDeposit));
 
-        // Get multisig owners = [agentInstance]
-        address[] memory instances = new address[](NUM_AGENT_INSTANCES);
-        instances[0] = agentInstance;
         // Get agent Ids
         uint32[] memory agentIds = new uint32[](NUM_AGENT_INSTANCES);
         agentIds[0] = uint32(agentId);
 
-        // Update service owned by this contract
-        IService(serviceManager).update(olas, configHash, agentIds, agentParams, uint32(THRESHOLD), serviceId);
+        // Set agent instances as [agentInstance]
+        address[] memory instances = new address[](NUM_AGENT_INSTANCES);
+        instances[0] = agentInstance;
+
+        if (createService) {
+            // Create a service owned by this contract
+            serviceId =
+                IService(serviceManager).create(address(this), olas, configHash, agentIds, agentParams, uint32(THRESHOLD));
+        } else {
+            // Update service owned by this contract
+            IService(serviceManager).update(olas, configHash, agentIds, agentParams, uint32(THRESHOLD), serviceId);
+        }
 
         // Activate registration (1 wei as a deposit wrapper)
         IService(serviceManager).activateRegistration{value: 1}(serviceId);
@@ -478,14 +399,28 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         // Register msg.sender as an agent instance (numAgentInstances wei as a bond wrapper)
         IService(serviceManager).registerAgents{value: NUM_AGENT_INSTANCES}(serviceId, instances, agentIds);
 
-        // Re-deploy service
-        bytes memory data = abi.encode(serviceId);
-        address multisig = IService(serviceManager).deploy(serviceId, safeSameAddressMultisig, data);
+        address multisig;
+        if (createService) {
+            // Create multisig with address(this) as module and swap owners to agentInstance
+            _createMultisigWithSelfAsModule(agentInstance);
+
+            // Deploy service via same address multisig
+            multisig = IService(serviceManager).deploy(serviceId, safeSameAddressMultisig, abi.encodePacked(multisig));
+        } else {
+            // Re-deploy service
+            bytes memory data = abi.encode(serviceId);
+            multisig = IService(serviceManager).deploy(serviceId, safeSameAddressMultisig, data);
+        }
+
+        emit Deployed(serviceId, multisig);
+
+        // Approve service NFT for staking instance
+        INFToken(serviceRegistry).approve(stakingProxy, serviceId);
 
         // Stake service
-        _stake(stakingProxy, serviceId);
+        IStaking(stakingProxy).stake(serviceId);
 
-        emit ReDeployed(serviceId, multisig);
+        return serviceId;
     }
 
     /// @dev Distributes rewards.
@@ -566,7 +501,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         uint256 agentId,
         bytes32 configHash,
         address agentInstance
-    ) external payable {
+    ) external {
         // Reentrancy guard
         if (_locked > 1) {
             revert ReentrancyGuard();
@@ -581,9 +516,6 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         // Sanity check
         if (agentId == 0 || configHash == 0) {
             revert ZeroValue();
-        }
-        if (msg.value != 1 + NUM_AGENT_INSTANCES) {
-            revert();
         }
 
         // Get current unstaked balance
@@ -608,11 +540,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         // Approve token for the serviceRegistryTokenUtility contract
         IToken(olas).approve(serviceRegistryTokenUtility, fullStakingDeposit);
 
-        if (serviceId == 0) {
-            serviceId = _createAndStake(stakingProxy, minStakingDeposit, agentId, configHash, agentInstance);
-        } else {
-            _deployAndStake(stakingProxy, minStakingDeposit, serviceId, agentId, configHash, agentInstance);
-        }
+        serviceId = _deployAndStake(stakingProxy, minStakingDeposit, serviceId, agentId, configHash, agentInstance);
 
         emit ExternalServiceStaked(msg.sender, stakingProxy, serviceId, agentId, configHash, fullStakingDeposit, localStakedBalance);
 
@@ -647,8 +575,16 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
             uint256 minStakingDeposit = IStaking(stakingProxy).minStakingDeposit();
             fullStakingDeposit = minStakingDeposit * (1 + NUM_AGENT_INSTANCES);
 
-            // Get current staked balance and update it
-            localStakedBalance = stakedBalance - fullStakingDeposit;
+            // Get current staked balance
+            localStakedBalance = stakedBalance;
+
+            // This must never happen because of how it was setup in first place
+            if (fullStakingDeposit > localStakedBalance) {
+                revert Overflow(fullStakingDeposit, localStakedBalance);
+            }
+
+            // Update staked balance
+            localStakedBalance -= fullStakingDeposit;
             stakedBalance = localStakedBalance;
 
             // Unstake, terminate and unbond service
@@ -656,17 +592,19 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
             IService(serviceManager).terminate(serviceId);
             IService(serviceManager).unbond(serviceId);
 
-            // TODO drain if leftover rewards is not zero
-            // serviceCuratingAgent
-            //
+            // Distribute leftover rewards if not zero
+            _distributeRewards(serviceId);
+
+            // Clear curating agent since service is unstaked, terminated and unbonded
             delete mapServiceIdCuratingAgents[serviceId];
         }
 
         uint256 amount = IToken(olas).balanceOf(address(this));
-        // Check if full staking deposit is not enough to cover
+        // Check if OLAS balance is not enough to cover requested unstake operation amount
         if (unstakeRequestedAmount > amount) {
+            unstakeRequestedAmount -= amount;
             // Update unstake requested amount
-            mapUnstakeOperationRequestedAmounts[operation] = unstakeRequestedAmount - amount;
+            mapUnstakeOperationRequestedAmounts[operation] = unstakeRequestedAmount;
         } else {
             mapUnstakeOperationRequestedAmounts[operation] = 0;
         }
@@ -677,7 +615,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         // Request top-up by Collector for a specific unstake operation
         ICollector(collector).topUpBalance(amount, operation);
 
-        emit ExternalServiceUnstaked(msg.sender, stakingProxy, serviceId, fullStakingDeposit, localStakedBalance);
+        emit ExternalServiceUnstaked(msg.sender, stakingProxy, serviceId, fullStakingDeposit, localStakedBalance, unstakeRequestedAmount);
 
         _locked = 1;
     }
@@ -721,7 +659,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         // Get OLAS from l2StakingProcessor or any other account
         IToken(olas).transferFrom(msg.sender, address(this), amount);
 
-        emit Deposit(msg.sender, amount);
+        emit Deposit(msg.sender, amount, operation);
 
         _locked = 1;
     }
@@ -813,5 +751,10 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         emit Claimed(stakingProxies, serviceIds, rewards);
 
         _locked = 1;
+    }
+
+    /// @dev Receives native funds for mock Service Registry minimal payments.
+    receive() external payable {
+        emit NativeTokenReceived(msg.value);
     }
 }
