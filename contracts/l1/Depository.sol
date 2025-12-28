@@ -152,8 +152,7 @@ contract Depository is Implementation {
     uint256 public paused;
 
     // Reentrancy lock
-    //bool transient _locked;
-    bool private _locked;
+    bool transient _locked;
 
     // Mapping for staking model Id => staking model
     mapping(uint256 => StakingModel) public mapStakingModels;
@@ -655,6 +654,9 @@ contract Depository is Implementation {
             revert UnauthorizedAccount(msg.sender);
         }
 
+        // Increase total account unstake amount
+        mapAccountWithdraws[sender] += unstakeAmount;
+
         // Check array lengths
         if (
             chainIds.length == 0 || chainIds.length != stakingProxies.length || chainIds.length != bridgePayloads.length
@@ -970,8 +972,11 @@ contract Depository is Implementation {
             revert WrongArrayLength();
         }
 
+        // Allocate arrays
         address[] memory externalStakingDistributors = new address[](chainIds.length);
         uint256[] memory localStakedExternals = new uint256[](chainIds.length);
+
+        uint256 unstakeAmount;
 
         // Traverse all chain Ids
         for (uint256 i = 0; i < chainIds.length; ++i) {
@@ -993,8 +998,16 @@ contract Depository is Implementation {
             // Update external deposited amounts
             localStakedExternals[i] -= amounts[i];
 
+            // Accumulate total unstake amount
+            unstakeAmount += amounts[i];
+
             // Update staked external amount
             mapChainIdStakedExternals[chainIds[i]] = uint256(uint160(externalStakingDistributors[i])) | (localStakedExternals[i] << 160);
+        }
+
+        if (operation == UNSTAKE) {
+            // Increase total account unstake amount
+            mapAccountWithdraws[sender] += unstakeAmount;
         }
 
         // Request unstake or unstake retired from external staking distributors via relevant deposit processors

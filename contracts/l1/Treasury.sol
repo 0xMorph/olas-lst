@@ -198,24 +198,27 @@ contract Treasury is Implementation, ERC6909 {
         if (stakedBalanceBefore > stakedBalanceAfter) {
             uint256 withdrawDiff = stakedBalanceBefore - stakedBalanceAfter;
 
-            uint256 totalExternalAmount;
-            // Traverse external amounts, if any
-            for (uint256 i = 0; i < externalAmounts.length; ++i) {
-                totalExternalAmount += externalAmounts[i];
-            }
+            // Check if unstake from externals is requested
+            if (chainIds[0].length > 0) {
+                uint256 totalExternalAmount;
+                // Traverse external amounts, if any
+                for (uint256 i = 0; i < externalAmounts.length; ++i) {
+                    totalExternalAmount += externalAmounts[i];
+                }
 
-            // Check for overflow
-            if (totalExternalAmount > withdrawDiff) {
-                revert Overflow(totalExternalAmount, withdrawDiff);
-            }
+                // Check for overflow
+                if (totalExternalAmount > withdrawDiff) {
+                    revert Overflow(totalExternalAmount, withdrawDiff);
+                }
 
-            // Update withdraw amount
-            if (totalExternalAmount > 0) {
-                withdrawDiff -= totalExternalAmount;
-            }
+                // Update withdraw amount
+                if (totalExternalAmount > 0) {
+                    withdrawDiff -= totalExternalAmount;
+                }
 
-            // First, unstake from external proxies
-            IDepository(depository).unstakeExternal(chainIds[0], externalAmounts, bridgePayloads[0], values[0], msg.sender);
+                // First, unstake from external proxies
+                IDepository(depository).unstakeExternal(chainIds[0], externalAmounts, bridgePayloads[0], values[0], msg.sender);
+            }
 
             // Second, unstake from LST staking proxies, if still required
             IDepository(depository).unstake(withdrawDiff, chainIds[1], stakingProxies, bridgePayloads[1], values[1], msg.sender);
