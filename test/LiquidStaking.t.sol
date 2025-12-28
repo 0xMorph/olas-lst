@@ -250,7 +250,7 @@ contract LiquidStakingTest is Test {
         ExternalStakingDistributor externalStakingDistributorImplementation = new ExternalStakingDistributor(address(olas),
             address(serviceManager), address(safeMultisigWithRecoveryModule), address(gnosisSafeSameAddressMultisig),
             address(fallbackHandler), address(multiSend), address(collector));
-        initPayload = abi.encodeWithSelector(stakingManagerImplementation.initialize.selector, collectorRewardFactor,
+        initPayload = abi.encodeWithSelector(externalStakingDistributorImplementation.initialize.selector, collectorRewardFactor,
             protocolRewardFactor, curatingAgentRewardFactor);
         Proxy externalStakingDistributorProxy = new Proxy(address(externalStakingDistributorImplementation), initPayload);
         externalStakingDistributor = ExternalStakingDistributor(payable(address(externalStakingDistributorProxy)));
