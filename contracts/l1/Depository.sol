@@ -708,7 +708,7 @@ contract Depository is Implementation {
         // Request unstake via relevant deposit processors
         _operationSendMessage(chainIds, stakingProxies, amounts, bridgePayloads, values, UNSTAKE, sender);
 
-        emit Unstake(msg.sender, chainIds, stakingProxies, amounts);
+        emit Unstake(sender, chainIds, stakingProxies, amounts);
     }
 
     /// @dev Calculates amounts and initiates cross-chain unstake request for specified retired models.
@@ -853,12 +853,19 @@ contract Depository is Implementation {
         emit SetExternalStakingDistributorChainIds(externalStakingDistributors, chainIds);
     }
 
-    function stakeExternal(
+    /// @dev Initiates cross-chain stake request for external staking distributors by owner.
+    /// @notice It is solely caller responsibility not to run out of gas when calling this function.
+    ///         Subject to gas estimation as the number of array elements is proportional to gas usage increase.
+    /// @param chainIds Set of chain Ids with external staking distributors.
+    /// @param amounts Set of unstake amounts requested from external staking on each corresponding chain Id.
+    /// @param bridgePayloads Bridge payloads corresponding to each chain Id.
+    /// @param values Value amounts for each bridge interaction, if applicable.
+    function depositExternal(
         uint256[] memory chainIds,
         uint256[] memory amounts,
         bytes[] memory bridgePayloads,
         uint256[] memory values
-    ) external {
+    ) external payable {
         // Reentrancy guard
         if (_locked) {
             revert ReentrancyGuard();
@@ -921,27 +928,37 @@ contract Depository is Implementation {
         emit StakeExternal(msg.sender, chainIds, externalStakingDistributors, amounts);
     }
 
+    /// @dev Initiates cross-chain unstake request on external staking distributors by Treasury or owner.
+    /// @notice 1. By Treasury: deducts reserves from their staked part and get them back as vault assets.
+    ///         2. By owner: deducts reserves from their staked part and get them back as assets reserved for staking.
+    /// @notice It is solely caller responsibility not to run out of gas when calling this function.
+    ///         Subject to gas estimation as the number of array elements is proportional to gas usage increase.
+    /// @param chainIds Set of chain Ids with external staking distributors.
+    /// @param amounts Set of unstake amounts requested from external staking on each corresponding chain Id.
+    /// @param bridgePayloads Bridge payloads corresponding to each chain Id.
+    /// @param values Value amounts for each bridge interaction, if applicable.
+    /// @param sender Sender account.
     function unstakeExternal(
         uint256[] memory chainIds,
         uint256[] memory amounts,
         bytes[] memory bridgePayloads,
         uint256[] memory values,
-        bytes32 operation
-    ) external {
+        address sender
+    ) external payable {
         // Reentrancy guard
         if (_locked) {
             revert ReentrancyGuard();
         }
         _locked = true;
 
-        // TODO: optimize with below
-        // Check for operation
-        if (operation != UNSTAKE && operation != UNSTAKE_RETIRED) {
-            revert();
-        }
-
+        bytes32 operation;
         // Check for proper access: treasury is able to UNSTAKE only, owner is able to UNSTAKE_RETIRED only
-        if ((operation == UNSTAKE && msg.sender != treasury) || (operation == UNSTAKE_RETIRED && msg.sender != owner)) {
+        if (msg.sender == treasury) {
+            operation = UNSTAKE;
+        } else if (msg.sender == owner) {
+            sender = msg.sender;
+            operation = UNSTAKE_RETIRED;
+        } else {
             revert UnauthorizedAccount(msg.sender);
         }
 
@@ -981,9 +998,9 @@ contract Depository is Implementation {
         }
 
         // Request unstake or unstake retired from external staking distributors via relevant deposit processors
-        _operationSendMessage(chainIds, externalStakingDistributors, amounts, bridgePayloads, values, operation, msg.sender);
+        _operationSendMessage(chainIds, externalStakingDistributors, amounts, bridgePayloads, values, operation, sender);
 
-        emit UnstakeExternal(msg.sender, chainIds, externalStakingDistributors, amounts, operation);
+        emit UnstakeExternal(sender, chainIds, externalStakingDistributors, amounts, operation);
     }
 
     /// @dev Pauses contract.
