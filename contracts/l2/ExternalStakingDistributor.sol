@@ -1,0 +1,792 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.30;
+
+import {ERC721TokenReceiver} from "../../lib/autonolas-registries/lib/solmate/src/tokens/ERC721.sol";
+import {BeaconProxy} from "../BeaconProxy.sol";
+import {Implementation, OwnerOnly, ZeroAddress} from "../Implementation.sol";
+import {IService} from "../interfaces/IService.sol";
+import {IStaking} from "../interfaces/IStaking.sol";
+import {IToken, INFToken} from "../interfaces/IToken.sol";
+
+// Collector interface
+interface ICollector {
+    /// @dev Tops up address(this) with a specified amount according to a selected operation.
+    /// @param amount OLAS amount.
+    /// @param operation Operation type.
+    function topUpBalance(uint256 amount, bytes32 operation) external;
+
+    /// @dev Tops up address(this) with a specified amount for protocol assets.
+    /// @param amount OLAS amount.
+    function topUpProtocol(uint256 amount) external;
+}
+
+// Safe multi send interface
+interface IMultiSend {
+    /// @dev Sends multiple transactions and reverts all if one fails.
+    /// @param transactions Encoded transactions. Each transaction is encoded as a packed bytes of
+    ///                     operation has to be uint8(0) in this version (=> 1 byte),
+    ///                     to as a address (=> 20 bytes),
+    ///                     value as a uint256 (=> 32 bytes),
+    ///                     payload length as a uint256 (=> 32 bytes),
+    ///                     payload as bytes.
+    ///                     see abi.encodePacked for more information on packed encoding
+    /// @notice The code is for most part the same as the normal MultiSend (to keep compatibility),
+    ///         but reverts if a transaction tries to use a delegatecall.
+    /// @notice This method is payable as delegatecalls keep the msg.value from the previous call
+    ///         If the calling method (e.g. execTransaction) received ETH this would revert otherwise
+    function multiSend(bytes memory transactions) external payable;
+}
+
+// Generic Safe interface
+interface ISafe {
+    enum Operation {
+        Call,
+        DelegateCall
+    }
+
+    /// @dev Allows to add a module to the whitelist.
+    /// @param module Module to be whitelisted.
+    function enableModule(address module) external;
+
+    /// @dev Allows to execute a Safe transaction confirmed by required number of owners and then pays the account that submitted the transaction.
+    /// @param to Destination address of Safe transaction.
+    /// @param value Ether value of Safe transaction.
+    /// @param data Data payload of Safe transaction.
+    /// @param operation Operation type of Safe transaction.
+    /// @param safeTxGas Gas that should be used for the Safe transaction.
+    /// @param baseGas Gas costs that are independent of the transaction execution(e.g. base transaction fee, signature check, payment of the refund)
+    /// @param gasPrice Gas price that should be used for the payment calculation.
+    /// @param gasToken Token address (or 0 if ETH) that is used for the payment.
+    /// @param refundReceiver Address of receiver of gas payment (or 0 if tx.origin).
+    /// @param signatures Packed signature data ({bytes32 r}{bytes32 s}{uint8 v})
+    function execTransaction(
+        address to,
+        uint256 value,
+        bytes calldata data,
+        Operation operation,
+        uint256 safeTxGas,
+        uint256 baseGas,
+        uint256 gasPrice,
+        address gasToken,
+        address payable refundReceiver,
+        bytes memory signatures
+    ) external payable returns (bool success);
+
+    /// @dev Allows a Module to execute a Safe transaction without any further confirmations.
+    /// @param to Destination address of module transaction.
+    /// @param value Ether value of module transaction.
+    /// @param data Data payload of module transaction.
+    /// @param operation Operation type of module transaction.
+    function execTransactionFromModule(address to, uint256 value, bytes memory data, Operation operation)
+    external
+    returns (bool success);
+
+    /// @dev Allows to swap/replace an owner from the Safe with another address.
+    ///      This can only be done via a Safe transaction.
+    /// @notice Replaces the owner `oldOwner` in the Safe with `newOwner`.
+    /// @param prevOwner Owner that pointed to the owner to be replaced in the linked list
+    /// @param oldOwner Owner address to be replaced.
+    /// @param newOwner New owner address.
+    function swapOwner(
+        address prevOwner,
+        address oldOwner,
+        address newOwner
+    ) external;
+}
+
+// SafeMultisigWithRecoveryModule interface
+interface ISafeMultisigWithRecoveryModule {
+    /// @dev Creates a Safe multisig.
+    /// @param owners Set of multisig owners.
+    /// @param threshold Number of required confirmations for a multisig transaction.
+    /// @param data Encoded data related to the creation of a chosen multisig.
+    /// @return multisig Address of a created multisig.
+    function create(
+        address[] memory owners,
+        uint256 threshold,
+        bytes memory data
+    ) external returns (address multisig);
+}
+
+/// @dev Zero value.
+error ZeroValue();
+
+/// @dev The contract is already initialized.
+error AlreadyInitialized();
+
+/// @dev Value overflow.
+/// @param provided Overflow value.
+/// @param max Maximum possible value.
+error Overflow(uint256 provided, uint256 max);
+
+/// @dev Account is unauthorized.
+/// @param account Account address.
+error UnauthorizedAccount(address account);
+
+/// @dev Caught reentrancy violation.
+error ReentrancyGuard();
+
+/// @dev Execution has failed.
+/// @param target Target address.
+/// @param payload Payload data.
+error ExecutionFailed(address target, bytes payload);
+
+/// @title ExternalStakingDistributor - Smart contract for distributing OLAS across external staking contracts
+contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
+    event RewardFactorsChanged(uint256 collectorRewardFactor, uint256 protocolRewardFactor, uint256 curatingAgentRewardFactor);
+    event StakingProcessorL2Updated(address indexed l2StakingProcessor);
+    event ExternalServiceStaked(address indexed sender, address indexed stakingProxy, uint256 indexed serviceId,
+        uint256 agentId, bytes32 configHash, uint256 stakingDeposit, uint256 stakedBalance);
+    event ExternalServiceUnstaked(address indexed sender, address indexed stakingProxy, uint256 indexed serviceId,
+        uint256 stakingDeposit, uint256 stakedBalance);
+    event CreatedAndDeployed(uint256 indexed serviceId, address indexed multisig);
+    event ReDeployed(uint256 indexed serviceId, address indexed multisig);
+    event RewardsDistributed(uint256 collectorAmount, uint256 protocolAmount, uint256 curatingAgentAmount);
+    event SetStakingProxyTypes(address[] stakingProxies, bytes32[] proxyTypes);
+    event Deposit(address indexed sender, uint256 amount);
+    event Withdraw(address indexed sender, uint256 amount, bytes32 operation, uint256 unstakeRequestedAmount);
+    event Claimed(address[] stakingProxies, uint256[] serviceIds, uint256[] rewards);
+
+    // Staking Manager version
+    string public constant VERSION = "0.1.0";
+    // Reward transfer operation
+    bytes32 public constant REWARD = 0x0b9821ae606ebc7c79bf3390bdd3dc93e1b4a7cda27aad60646e7b88ff55b001;
+    // Staking type: generic OLAS V1
+    bytes32 public constant STAKING_TYPE_OLAS_V1 = 0xdbeba05bf894aa66d04900d63d8bb3ce8d6e45fc66b64d81de6e5cfcb445fca1;
+
+    // Number of agent instances
+    uint256 public constant NUM_AGENT_INSTANCES = 1;
+    // Threshold
+    uint256 public constant THRESHOLD = 1;
+    // Max reward factor
+    uint256 public constant MAX_REWARD_FACTOR = 10_000;
+
+    // Service manager address
+    address public immutable serviceManager;
+    // OLAS token address
+    address public immutable olas;
+    // Service registry address
+    address public immutable serviceRegistry;
+    // Service registry token utility address
+    address public immutable serviceRegistryTokenUtility;
+    // Safe multisig with recovery module processing contract address
+    address public immutable safeMultisigWithRecoveryModule;
+    // Safe same address multisig processing contract address
+    address public safeSameAddressMultisig;
+    // Safe fallback handler address
+    address public immutable fallbackHandler;
+    // Multisend contract address
+    address public immutable multiSend;
+    // Staking factory address
+    address public immutable stakingFactory;
+    // OLAS collector address
+    address public immutable collector;
+
+    // Staked balance
+    uint256 public stakedBalance;
+    // Collector reward factor
+    uint256 public collectorRewardFactor;
+    // Protocol reward factor
+    uint256 public protocolRewardFactor;
+    // Curating agent reward factor
+    uint256 public curatingAgentRewardFactor;
+    // L2 staking processor address
+    address public l2StakingProcessor;
+
+    // Nonce
+    uint256 internal _nonce;
+    // Reentrancy lock
+    uint256 internal _locked = 1;
+
+    // Mapping of whitelisted staking proxy address => staking type
+    mapping(address => bytes32) public mapStakingProxyTypes;
+    // Mapping of service Id => agent address curating it
+    mapping(uint256 => address) public mapServiceIdCuratingAgents;
+    // Mapping of unstake requests: unstake operation => amount requested
+    mapping(bytes32 => uint256) public mapUnstakeOperationRequestedAmounts;
+
+    /// @dev ExternalStakingDistributor constructor.
+    /// @param _olas OLAS token address.
+    /// @param _serviceManager Service manager address.
+    /// @param _safeMultisigWithRecoveryModule Safe multisig with recovery module processing contract address.
+    /// @param _safeSameAddressMultisig Safe same address multisig processing contract address.
+    /// @param _fallbackHandler Safe fallback handler address.
+    /// @param _multiSend Multisend contract address.
+    /// @param _stakingFactory Staking factory address.
+    /// @param _collector OLAS collector address.
+    constructor(
+        address _olas,
+        address _serviceManager,
+        address _safeMultisigWithRecoveryModule,
+        address _safeSameAddressMultisig,
+        address _fallbackHandler,
+        address _multiSend,
+        address _stakingFactory,
+        address _collector
+    ) {
+        // Check for zero addresses
+        if (
+            _olas == address(0) || _serviceManager == address(0) || _safeMultisigWithRecoveryModule == address(0)
+                || _safeSameAddressMultisig == address(0) || _fallbackHandler == address(0) || _multiSend == address(0)
+                || _stakingFactory == address(0) || _collector == address(0)
+        ) {
+            revert ZeroAddress();
+        }
+
+        olas = _olas;
+        serviceManager = _serviceManager;
+        safeMultisigWithRecoveryModule = _safeMultisigWithRecoveryModule;
+        safeSameAddressMultisig = _safeSameAddressMultisig;
+        fallbackHandler = _fallbackHandler;
+        multiSend = _multiSend;
+        stakingFactory = _stakingFactory;
+        collector = _collector;
+        serviceRegistry = IService(serviceManager).serviceRegistry();
+        serviceRegistryTokenUtility = IService(serviceManager).serviceRegistryTokenUtility();
+    }
+
+    /// @dev Initializes external staking distributor.
+    /// @param _collectorRewardFactor Collector reward factor.
+    /// @param _protocolRewardFactor Protocol reward factor.
+    /// @param _curatingAgentRewardFactor Curating agent reward factor.
+    function initialize(uint256 _collectorRewardFactor, uint256 _protocolRewardFactor, uint256 _curatingAgentRewardFactor) external {
+        if (owner != address(0)) {
+            revert AlreadyInitialized();
+        }
+
+        changeRewardFactors(_collectorRewardFactor, _protocolRewardFactor, _curatingAgentRewardFactor);
+        owner = msg.sender;
+    }
+
+    /// @dev Initializes external staking distributor.
+    /// @param _collectorRewardFactor Collector reward factor.
+    /// @param _protocolRewardFactor Protocol reward factor.
+    /// @param _curatingAgentRewardFactor Curating agent reward factor.
+    function changeRewardFactors(uint256 _collectorRewardFactor, uint256 _protocolRewardFactor, uint256 _curatingAgentRewardFactor) public {
+        if (owner != address(0)) {
+            revert AlreadyInitialized();
+        }
+
+        // Check for MAX_REWARD_FACTOR overflow
+        uint256 totalFactor = _collectorRewardFactor + _protocolRewardFactor + _curatingAgentRewardFactor;
+        if (totalFactor > MAX_REWARD_FACTOR) {
+            revert Overflow (totalFactor, MAX_REWARD_FACTOR);
+        }
+
+        collectorRewardFactor = _collectorRewardFactor;
+        protocolRewardFactor = _protocolRewardFactor;
+        curatingAgentRewardFactor = _curatingAgentRewardFactor;
+
+        emit RewardFactorsChanged(_collectorRewardFactor, _protocolRewardFactor, _curatingAgentRewardFactor);
+    }
+
+    /// @dev Changes token relayer address.
+    /// @param newStakingProcessorL2 Address of a new owner.
+    function changeStakingProcessorL2(address newStakingProcessorL2) external {
+        // Check for ownership
+        if (msg.sender != owner) {
+            revert OwnerOnly(msg.sender, owner);
+        }
+
+        // Check for the zero address
+        if (newStakingProcessorL2 == address(0)) {
+            revert ZeroAddress();
+        }
+
+        l2StakingProcessor = newStakingProcessorL2;
+        emit StakingProcessorL2Updated(newStakingProcessorL2);
+    }
+
+    /// @dev Creates multisig and enables address(this) as module.
+    /// @param agentInstance Agent instance address.
+    function _createMultisigWithSelfAsModule(address agentInstance) internal {
+        // Prepare Safe multisig data
+        uint256 localNonce = _nonce;
+        uint256 randomNonce = uint256(keccak256(abi.encodePacked(block.timestamp, msg.sender, localNonce)));
+
+        // Create Safe with self as owner
+        address[] memory owners = new address[](1);
+        owners[0] = address(this);
+        bytes memory data = abi.encode(fallbackHandler, randomNonce);
+        address multisig = ISafeMultisigWithRecoveryModule(safeMultisigWithRecoveryModule).create(owners, THRESHOLD, data);
+
+        // Enable self as module
+        bytes32 r = bytes32(uint256(uint160(address(this))));
+        bytes memory signature = abi.encodePacked(r, bytes32(0), uint8(1));
+
+        // TODO multisend maybe?
+        // Encode enable module function call
+        data = abi.encodeCall(ISafe.enableModule, (address(this)));
+
+        // Execute multisig transaction
+        ISafe(multisig).execTransaction(
+            multisig, 0, data, ISafe.Operation.Call, 0, 0, 0, address(0), payable(address(0)), signature
+        );
+
+        // Encode swap owner function call
+        data = abi.encodeCall(ISafe.swapOwner, (address(0x1), address(this), agentInstance));
+        
+        // Execute multisig transaction
+        ISafe(multisig).execTransaction(
+            multisig, 0, data, ISafe.Operation.Call, 0, 0, 0, address(0), payable(address(0)), signature
+        );
+
+        // Update the nonce
+        _nonce = localNonce + 1;
+    }
+
+    /// @dev Creates and deploys a service.
+    /// @param minStakingDeposit Min staking deposit value.
+    /// @param agentId Agent Blueprint Id.
+    /// @param configHash Config hash.
+    /// @param agentInstance Agent instance address.
+    /// @return serviceId Minted service Id.
+    /// @return multisig Service multisig.
+    function _createAndDeploy(
+        uint256 minStakingDeposit,
+        uint256 agentId,
+        bytes32 configHash,
+        address agentInstance
+    )
+        internal
+        returns (uint256 serviceId, address multisig)
+    {
+        // Set agent params
+        IService.AgentParams[] memory agentParams = new IService.AgentParams[](NUM_AGENT_INSTANCES);
+        agentParams[0] = IService.AgentParams(uint32(NUM_AGENT_INSTANCES), uint96(minStakingDeposit));
+
+        // Set agent Ids
+        uint32[] memory agentIds = new uint32[](NUM_AGENT_INSTANCES);
+        agentIds[0] = uint32(agentId);
+
+        // Set agent instances as [agentInstance]
+        address[] memory instances = new address[](NUM_AGENT_INSTANCES);
+
+        // Assign agent instance address
+        instances[0] = agentInstance;
+
+        // Create a service owned by this contract
+        serviceId =
+            IService(serviceManager).create(address(this), olas, configHash, agentIds, agentParams, uint32(THRESHOLD));
+
+        // Activate registration (1 wei as a deposit wrapper)
+        IService(serviceManager).activateRegistration{value: 1}(serviceId);
+
+        // Register msg.sender as an agent instance (numAgentInstances wei as a bond wrapper)
+        IService(serviceManager).registerAgents{value: NUM_AGENT_INSTANCES}(serviceId, instances, agentIds);
+
+        // Create multisig with address(this) as module and swap owners to agentInstance
+        _createMultisigWithSelfAsModule(agentInstance);
+
+        // Deploy service via same address multisig
+        multisig = IService(serviceManager).deploy(serviceId, safeSameAddressMultisig, abi.encode(serviceId));
+    }
+
+    /// @dev Stakes the already deployed service.
+    /// @param stakingProxy Staking proxy address.
+    /// @param serviceId Service Id.
+    function _stake(address stakingProxy, uint256 serviceId) internal {
+        // Approve service NFT for the staking instance
+        INFToken(serviceRegistry).approve(stakingProxy, serviceId);
+
+        // Stake the service
+        IStaking(stakingProxy).stake(serviceId);
+    }
+
+    /// @dev Creates and deploys a service, and stakes it with a specified staking contract.
+    /// @notice The service cannot be registered again if it is currently staked.
+    /// @param stakingProxy Corresponding staking instance address.
+    /// @param minStakingDeposit Min staking deposit value.
+    /// @param agentId Agent Blueprint Id.
+    /// @param configHash Config hash.
+    /// @param agentInstance Agent instance address.
+    function _createAndStake(
+        address stakingProxy,
+        uint256 minStakingDeposit,
+        uint256 agentId,
+        bytes32 configHash,
+        address agentInstance
+    ) internal returns (uint256 serviceId) {
+        address multisig;
+
+        // Create and deploy service
+        (serviceId, multisig) = _createAndDeploy(minStakingDeposit, agentId, configHash, agentInstance);
+
+        // Stake the service
+        _stake(stakingProxy, serviceId);
+
+        emit CreatedAndDeployed(serviceId, multisig);
+    }
+
+    /// @dev Stakes the already deployed service.
+    /// @param stakingProxy Staking proxy address.
+    /// @param minStakingDeposit Min staking deposit value.
+    /// @param serviceId Service Id.
+    /// @param agentId Agent Blueprint Id.
+    /// @param configHash Config hash.
+    /// @param agentInstance Agent instance address.
+    function _deployAndStake(
+        address stakingProxy,
+        uint256 minStakingDeposit,
+        uint256 serviceId,
+        uint256 agentId,
+        bytes32 configHash,
+        address agentInstance
+    ) internal {
+        // Set agent params
+        IService.AgentParams[] memory agentParams = new IService.AgentParams[](NUM_AGENT_INSTANCES);
+        agentParams[0] = IService.AgentParams(uint32(NUM_AGENT_INSTANCES), uint96(minStakingDeposit));
+
+        // Get multisig owners = [agentInstance]
+        address[] memory instances = new address[](NUM_AGENT_INSTANCES);
+        instances[0] = agentInstance;
+        // Get agent Ids
+        uint32[] memory agentIds = new uint32[](NUM_AGENT_INSTANCES);
+        agentIds[0] = uint32(agentId);
+
+        // Update service owned by this contract
+        IService(serviceManager).update(olas, configHash, agentIds, agentParams, uint32(THRESHOLD), serviceId);
+
+        // Activate registration (1 wei as a deposit wrapper)
+        IService(serviceManager).activateRegistration{value: 1}(serviceId);
+
+        // Register msg.sender as an agent instance (numAgentInstances wei as a bond wrapper)
+        IService(serviceManager).registerAgents{value: NUM_AGENT_INSTANCES}(serviceId, instances, agentIds);
+
+        // Re-deploy service
+        bytes memory data = abi.encode(serviceId);
+        address multisig = IService(serviceManager).deploy(serviceId, safeSameAddressMultisig, data);
+
+        // Stake service
+        _stake(stakingProxy, serviceId);
+
+        emit ReDeployed(serviceId, multisig);
+    }
+
+    /// @dev Distributes rewards.
+    /// @return balance Amount drained.
+    function _distributeRewards(uint256 serviceId) internal returns (uint256 balance) {
+        // Get the service multisig
+        (, address multisig,,,,,) = IService(serviceRegistry).mapServices(serviceId);
+
+        // Get service curating agent address
+        address curatingAgent = mapServiceIdCuratingAgents[serviceId];
+
+        // Sanity checks
+        if (multisig == address(0) || curatingAgent == address(0)) {
+            revert ZeroAddress();
+        }
+
+        // Get multisig balance
+        balance = IToken(olas).balanceOf(multisig);
+
+        // Check for zero balance
+        if (balance > 0) {
+            // Calculate reward distribution
+            uint256 collectorAmount = (balance * collectorRewardFactor) / MAX_REWARD_FACTOR;
+            uint256 protocolAmount = (balance * protocolRewardFactor) / MAX_REWARD_FACTOR;
+            uint256 curatingAgentAmount = balance - collectorAmount - protocolAmount;
+            
+            // Encode OLAS approve function call for collector
+            bytes memory data = abi.encodeCall(IToken.approve, (collector, collectorAmount + protocolAmount));
+            // MultiSend payload with the packed data of (operation, multisig address, value(0), payload length, payload)
+            bytes memory msPayload = abi.encodePacked(ISafe.Operation.Call, olas, uint256(0), data.length, data);
+
+            // Encode collector top-up function call for REWARD operation
+            data = abi.encodeCall(ICollector.topUpBalance, (collectorAmount, REWARD));
+            // Concatenate multi send payload with the packed data of (operation, multisig address, value(0), payload length, payload)
+            msPayload = bytes.concat(
+                msPayload, abi.encodePacked(ISafe.Operation.Call, collector, uint256(0), data.length, data)
+            );
+
+            // Encode collector top-up function call for protocol assets
+            data = abi.encodeCall(ICollector.topUpProtocol, (protocolAmount));
+            // Concatenate multi send payload with the packed data of (operation, multisig address, value(0), payload length, payload)
+            msPayload = bytes.concat(
+                msPayload, abi.encodePacked(ISafe.Operation.Call, collector, uint256(0), data.length, data)
+            );
+
+            // Encode OLAS transfer function call for curating agent
+            data = abi.encodeCall(IToken.transfer, (curatingAgent, curatingAgentAmount));
+            // Concatenate multi send payload with the packed data of (operation, multisig address, value(0), payload length, payload)
+            msPayload = bytes.concat(
+                msPayload, abi.encodePacked(ISafe.Operation.Call, collector, uint256(0), data.length, data)
+            );
+
+            // Multisend call to execute all the payloads
+            msPayload = abi.encodeCall(IMultiSend.multiSend, (msPayload));
+
+            // Execute module call
+            bool success =
+                ISafe(multisig).execTransactionFromModule(multiSend, 0, msPayload, ISafe.Operation.DelegateCall);
+
+            // Check for success
+            if (!success) {
+                revert ExecutionFailed(multiSend, msPayload);
+            }
+
+            emit RewardsDistributed(collectorAmount, protocolAmount, curatingAgentAmount);
+        }
+    }
+
+    /// @dev Stakes OLAS into specified staking proxy contract if balance is enough for staking.
+    /// @param stakingProxy Staking proxy address.
+    /// @param serviceId Service Id: non-zero if service is owned by address(this) and could be reused, zero otherwise.
+    /// @param agentId Agent Blueprint Id.
+    /// @param configHash Config hash.
+    /// @param agentInstance Agent instance address.
+    function stake(
+        address stakingProxy,
+        uint256 serviceId,
+        uint256 agentId,
+        bytes32 configHash,
+        address agentInstance
+    ) external payable {
+        // Reentrancy guard
+        if (_locked > 1) {
+            revert ReentrancyGuard();
+        }
+        _locked = 2;
+
+        // Check for whitelisted staking proxy type
+        if (mapStakingProxyTypes[stakingProxy] == 0) {
+            revert ZeroValue();
+        }
+
+        // Sanity check
+        if (agentId == 0 || configHash == 0) {
+            revert ZeroValue();
+        }
+        if (msg.value != 1 + NUM_AGENT_INSTANCES) {
+            revert();
+        }
+
+        // Get current unstaked balance
+        uint256 balance = IToken(olas).balanceOf(address(this));
+        uint256 minStakingDeposit = IStaking(stakingProxy).minStakingDeposit();
+        // Note: for now max number of agent instances is 1
+        uint256 fullStakingDeposit = minStakingDeposit * (1 + NUM_AGENT_INSTANCES);
+
+        // Check for balance
+        if (fullStakingDeposit > balance) {
+            revert Overflow(fullStakingDeposit, balance);
+        }
+
+        // Get current staked balance and update it
+        uint256 localStakedBalance = stakedBalance;
+        localStakedBalance += fullStakingDeposit;
+        stakedBalance = localStakedBalance;
+
+        // Record service curating agent
+        mapServiceIdCuratingAgents[serviceId] = msg.sender;
+
+        // Approve token for the serviceRegistryTokenUtility contract
+        IToken(olas).approve(serviceRegistryTokenUtility, fullStakingDeposit);
+
+        if (serviceId == 0) {
+            serviceId = _createAndStake(stakingProxy, minStakingDeposit, agentId, configHash, agentInstance);
+        } else {
+            _deployAndStake(stakingProxy, minStakingDeposit, serviceId, agentId, configHash, agentInstance);
+        }
+
+        emit ExternalServiceStaked(msg.sender, stakingProxy, serviceId, agentId, configHash, fullStakingDeposit, localStakedBalance);
+
+        _locked = 1;
+    }
+
+    /// @dev Unstakes, if needed, and withdraws specified amounts from specified staking contracts.
+    /// @param stakingProxy Staking proxy address.
+    /// @param serviceId Service Id.
+    /// @param operation Unstake operation type.
+    function unstake(address stakingProxy, uint256 serviceId, bytes32 operation) external virtual {
+        // Reentrancy guard
+        if (_locked > 1) {
+            revert ReentrancyGuard();
+        }
+        _locked = 2;
+
+        address serviceCuratingAgent = mapServiceIdCuratingAgents[serviceId];
+        // Check for access
+        if (msg.sender != owner && msg.sender != serviceCuratingAgent) {
+            revert UnauthorizedAccount(msg.sender);
+        }
+
+        // Get current unstake requested amount
+        uint256 unstakeRequestedAmount = mapUnstakeOperationRequestedAmounts[operation];
+
+        uint256 fullStakingDeposit;
+        uint256 localStakedBalance;
+        // Check if service unstake is requested
+        if (stakingProxy != address(0) && serviceId > 0) {
+            // Calculate how many unstakes are needed
+            uint256 minStakingDeposit = IStaking(stakingProxy).minStakingDeposit();
+            fullStakingDeposit = minStakingDeposit * (1 + NUM_AGENT_INSTANCES);
+
+            // Get current staked balance and update it
+            localStakedBalance = stakedBalance - fullStakingDeposit;
+            stakedBalance = localStakedBalance;
+
+            // Unstake, terminate and unbond service
+            IStaking(stakingProxy).unstake(serviceId);
+            IService(serviceManager).terminate(serviceId);
+            IService(serviceManager).unbond(serviceId);
+
+            // TODO drain if leftover rewards is not zero
+            // serviceCuratingAgent
+            //
+            delete mapServiceIdCuratingAgents[serviceId];
+        }
+
+        uint256 amount = IToken(olas).balanceOf(address(this));
+        // Check if full staking deposit is not enough to cover
+        if (unstakeRequestedAmount > amount) {
+            // Update unstake requested amount
+            mapUnstakeOperationRequestedAmounts[operation] = unstakeRequestedAmount - amount;
+        } else {
+            mapUnstakeOperationRequestedAmounts[operation] = 0;
+        }
+
+        // Approve OLAS for collector to initiate L1 transfer for corresponding operation later by agents / operators
+        IToken(olas).approve(collector, amount);
+
+        // Request top-up by Collector for a specific unstake operation
+        ICollector(collector).topUpBalance(amount, operation);
+
+        emit ExternalServiceUnstaked(msg.sender, stakingProxy, serviceId, fullStakingDeposit, localStakedBalance);
+
+        _locked = 1;
+    }
+
+    /// @dev Sets staking proxy types.
+    /// @param stakingProxies Set of staking proxies.
+    function setStakingProxyTypes(address[] memory stakingProxies) external {
+        // Check for the ownership
+        if (msg.sender != owner) {
+            revert OwnerOnly(msg.sender, owner);
+        }
+
+        uint256 numProxies = stakingProxies.length;
+        bytes32[] memory proxyTypes = new bytes32[](numProxies);
+
+        // Traverse staking proxies
+        for (uint256 i = 0; i < numProxies; ++i) {
+            // Check for zero address
+            if (stakingProxies[i] == address(0)) {
+                revert ZeroAddress();
+            }
+
+            // Note: for right now it is single type only
+            proxyTypes[i] = STAKING_TYPE_OLAS_V1;
+            mapStakingProxyTypes[stakingProxies[i]] = proxyTypes[i];
+        }
+
+        emit SetStakingProxyTypes(stakingProxies, proxyTypes);
+    }
+
+    /// @dev Deposits OLAS for further staking.
+    /// @param amount OLAS amount.
+    /// @param operation Stake operation type.
+    function deposit(uint256 amount, bytes32 operation) external {
+        // Reentrancy guard
+        if (_locked > 1) {
+            revert ReentrancyGuard();
+        }
+        _locked = 2;
+
+        // Get OLAS from l2StakingProcessor or any other account
+        IToken(olas).transferFrom(msg.sender, address(this), amount);
+
+        emit Deposit(msg.sender, amount);
+
+        _locked = 1;
+    }
+
+    /// @dev Requests withdraw via specified unstake operation.
+    /// @param amount Unstake amount.
+    /// @param operation Unstake operation type.
+    function withdraw(uint256 amount, bytes32 operation) external {
+        // Reentrancy guard
+        if (_locked > 1) {
+            revert ReentrancyGuard();
+        }
+        _locked = 2;
+
+        // Check for l2StakingProcessor to be a sender
+        if (msg.sender != l2StakingProcessor) {
+            revert UnauthorizedAccount(msg.sender);
+        }
+
+        // Get current OLAS balance
+        uint256 olasBalance = IToken(olas).balanceOf(address(this));
+        // Get current staked balance
+        uint256 localStakedBalance = stakedBalance;
+        // Get overall amount
+        uint256 totalBalance = olasBalance + localStakedBalance;
+
+        // Check for overflow: this must never happen as checks are done on L1 side
+        if (amount > totalBalance) {
+            revert Overflow(amount, totalBalance);
+        }
+
+        uint256 unstakeRequestedAmount;
+
+        // Check if OLAS balance is not enough to cover withdraw request
+        if (amount > olasBalance) {
+            unstakeRequestedAmount = amount - olasBalance;
+            amount = olasBalance;
+
+            mapUnstakeOperationRequestedAmounts[operation] += unstakeRequestedAmount;
+        }
+
+        // Check for zero amount
+        if (amount > 0) {
+            // Approve OLAS for collector to initiate L1 transfer for corresponding operation later by agents / operators
+            IToken(olas).approve(collector, amount);
+
+            // Request top-up by Collector for a specific unstake operation
+            ICollector(collector).topUpBalance(amount, operation);
+        }
+
+        emit Withdraw(msg.sender, amount, operation, unstakeRequestedAmount);
+
+        _locked = 1;
+    }
+
+    /// @dev Claims specified service rewards.
+    /// @param stakingProxies Set of staking proxy addresses.
+    /// @param serviceIds Corresponding set if service Ids.
+    /// @return rewards Set of staking rewards.
+    function claim(address[] memory stakingProxies, uint256[] memory serviceIds) external returns (uint256[] memory rewards) {
+        // Reentrancy guard
+        if (_locked > 1) {
+            revert ReentrancyGuard();
+        }
+        _locked = 2;
+
+        // Get number of proxies
+        uint256 numProxies = stakingProxies.length;
+
+        // TODO
+        // Check for correct array length
+        if (serviceIds.length != numProxies) {
+            revert();
+        }
+
+        // Allocate rewards array
+        rewards = new uint256[](numProxies);
+
+        // Claim rewards
+        for (uint256 i = 0; i < numProxies; ++i) {
+            rewards[i] = IStaking(stakingProxies[i]).claim(serviceIds[i]);
+        }
+
+        // Distribute rewards
+        for (uint256 i = 0; i < numProxies; ++i) {
+            _distributeRewards(serviceIds[i]);
+        }
+
+        emit Claimed(stakingProxies, serviceIds, rewards);
+
+        _locked = 1;
+    }
+}

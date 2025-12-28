@@ -378,4 +378,25 @@ contract Collector is Implementation {
 
         _locked = 1;
     }
+
+    /// @dev Tops up address(this) with a specified amount for protocol assets.
+    /// @param amount OLAS amount.
+    function topUpProtocol(uint256 amount) external {
+        // Reentrancy guard
+        if (_locked == 2) {
+            revert ReentrancyGuard();
+        }
+        _locked = 2;
+
+        // Pull OLAS amount and increase corresponding balance
+        IToken(olas).transferFrom(msg.sender, address(this), amount);
+
+        // Update protocol balance
+        uint256 curProtocolBalance = protocolBalance + amount;
+        protocolBalance = curProtocolBalance;
+
+        emit ProtocolBalanceUpdated(curProtocolBalance);
+
+        _locked = 1;
+    }
 }
