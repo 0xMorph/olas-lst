@@ -304,6 +304,9 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         uint256 localNonce = _nonce;
         uint256 randomNonce = uint256(keccak256(abi.encodePacked(block.timestamp, msg.sender, localNonce)));
 
+        // Update global nonce
+        _nonce = localNonce + 1;
+
         // Create Safe with self as owner
         address[] memory owners = new address[](1);
         owners[0] = address(this);
@@ -314,25 +317,47 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         bytes32 r = bytes32(uint256(uint160(address(this))));
         bytes memory signature = abi.encodePacked(r, bytes32(0), uint8(1));
 
-        // TODO multisend maybe?
+//        // TODO multisend maybe?
+//        // Encode enable module function call
+//        data = abi.encodeCall(ISafe.enableModule, (address(this)));
+//
+//        // Execute multisig transaction
+//        ISafe(multisig).execTransaction(
+//            multisig, 0, data, ISafe.Operation.Call, 0, 0, 0, address(0), payable(address(0)), signature
+//        );
+//
+//        // Encode swap owner function call
+//        data = abi.encodeCall(ISafe.swapOwner, (address(0x1), address(this), agentInstance));
+//
+//        // Execute multisig transaction
+//        ISafe(multisig).execTransaction(
+//            multisig, 0, data, ISafe.Operation.Call, 0, 0, 0, address(0), payable(address(0)), signature
+//        );
+
         // Encode enable module function call
         data = abi.encodeCall(ISafe.enableModule, (address(this)));
-
-        // Execute multisig transaction
-        ISafe(multisig).execTransaction(
-            multisig, 0, data, ISafe.Operation.Call, 0, 0, 0, address(0), payable(address(0)), signature
-        );
+        // MultiSend payload with the packed data of (operation, multisig address, value(0), payload length, payload)
+        bytes memory msPayload = abi.encodePacked(ISafe.Operation.Call, multisig, uint256(0), data.length, data);
 
         // Encode swap owner function call
         data = abi.encodeCall(ISafe.swapOwner, (address(0x1), address(this), agentInstance));
-        
-        // Execute multisig transaction
-        ISafe(multisig).execTransaction(
-            multisig, 0, data, ISafe.Operation.Call, 0, 0, 0, address(0), payable(address(0)), signature
+        // Concatenate multi send payload with the packed data of (operation, multisig address, value(0), payload length, payload)
+        msPayload = bytes.concat(
+            msPayload, abi.encodePacked(ISafe.Operation.Call, multisig, uint256(0), data.length, data)
         );
 
-        // Update the nonce
-        _nonce = localNonce + 1;
+        // Multisend call to execute all the payloads
+        msPayload = abi.encodeCall(IMultiSend.multiSend, (msPayload));
+
+        // Execute multisig transaction
+        bool success = ISafe(multisig).execTransaction(
+            multisig, 0, msPayload, ISafe.Operation.DelegateCall, 0, 0, 0, address(0), payable(address(0)), signature
+        );
+
+        // Check for success
+        if (!success) {
+            revert ExecutionFailed(multiSend, msPayload);
+        }
     }
 
     /// @dev Creates and deploys a service.
@@ -510,7 +535,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
             data = abi.encodeCall(IToken.transfer, (curatingAgent, curatingAgentAmount));
             // Concatenate multi send payload with the packed data of (operation, multisig address, value(0), payload length, payload)
             msPayload = bytes.concat(
-                msPayload, abi.encodePacked(ISafe.Operation.Call, collector, uint256(0), data.length, data)
+                msPayload, abi.encodePacked(ISafe.Operation.Call, olas, uint256(0), data.length, data)
             );
 
             // Multisend call to execute all the payloads
