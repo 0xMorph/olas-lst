@@ -171,8 +171,6 @@ contract Depository is Implementation {
     // Mapping for account => withdraw amounts
     mapping(address => uint256) public mapAccountWithdraws;
 
-    uint256 public totalStakedExternal;
-
     // Mapping for chain Id => (amount deposited : address of staked external)
     mapping(uint256 => uint256) public mapChainIdStakedExternals;
 
