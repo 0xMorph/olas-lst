@@ -44,7 +44,7 @@ if (target == externalStakingDistributor) {
     (success,) = externalStakingDistributor.call(unstakeData);  // ✅ FIX: use externalStakingDistributor
 }
 ```
-[]
+[x] Fixed
 
 
 ---
@@ -128,7 +128,7 @@ function deposit(uint256 amount, bytes32 operation) external {
 **Note:** See [HIGH-1-reanalysis.md](HIGH-1-reanalysis.md) for detailed analysis.
 
 ---
-[]
+[x] Fixed
 
 ### MED-2: Missing Zero Address Check in setExternalStakingDistributorChainIds
 
@@ -159,7 +159,7 @@ Either:
 3. Update `depositExternal`/`unstakeExternal` to handle zero addresses gracefully with a clear error message
 
 ---
-[]
+[x] Fixed
 
 ### MED-3: Inconsistent Reentrancy Guard Pattern
 
@@ -184,7 +184,7 @@ While both patterns work, the inconsistency can lead to confusion and potential 
 Standardize on one pattern across all contracts. The boolean pattern is simpler and sufficient for most cases.
 
 ---
-[]
+[x] Noted, but left as is
 
 ### MED-4: Missing Array Length Validation in claim Function
 
@@ -243,7 +243,7 @@ If both `unstake()` and `unstakeExternal()` can be called for the same sender in
 
 **Recommendation:**
 Ensure reentrancy guards are properly placed and consider adding explicit checks to prevent concurrent unstake operations for the same account.
-[]
+[x] Noted, false positive
 
 ---
 

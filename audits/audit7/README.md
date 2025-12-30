@@ -46,7 +46,7 @@ The audit reviewed all changes between commits `d7db0db` (main branch) and `2d32
         }
     Fix: bool createService = (serviceId == 0); ?
 ```
-[]
+[x] Fixed
 
 ### Critical. Incorrect mapServiceIdCuratingAgents entry in stake for serviceId == 0
 ```
@@ -58,7 +58,7 @@ The audit reviewed all changes between commits `d7db0db` (main branch) and `2d32
 
     Problem: If serviceId == 0 (creating a new service), the entry is made to key 0, and the real serviceId appears after _deployAndStake. As a result: for the new service, mapServiceIdCuratingAgents[realServiceId] will remain zero, and mapServiceIdCuratingAgents[0] will be equal to some address (curator).
 ```
-[]
+[x] Fixed
 
 ### Critical? abi.encodePacked(address(0))
 ```
@@ -73,7 +73,7 @@ The audit reviewed all changes between commits `d7db0db` (main branch) and `2d32
     ...
     Comment needed.
 ```
-[]
+[x] Fixed
 
 ### Medium. changeRewardFactors() is only available before initialize
 ```
@@ -87,6 +87,7 @@ function changeRewardFactors(
         }
     Should the owner be able to change this later?
 ```
+[x] Fixed
 
 [Security Audit Report](findings/security-audit-report.md)
 

@@ -850,6 +850,11 @@ contract Depository is Implementation {
                 revert ZeroValue();
             }
 
+            // Check for zero address
+            if (externalStakingDistributors[i] == address(0)) {
+                revert ZeroAddress();
+            }
+
             // Get external staking distributor amount
             uint256 stakedExternalAmount = mapChainIdStakedExternals[chainIds[i]] >> 160;
             // Check for external staking distributor amount that must be equal to zero

@@ -261,25 +261,19 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
             revert AlreadyInitialized();
         }
 
-        changeRewardFactors(_collectorRewardFactor, _protocolRewardFactor, _curatingAgentRewardFactor);
+        _changeRewardFactors(_collectorRewardFactor, _protocolRewardFactor, _curatingAgentRewardFactor);
         owner = msg.sender;
     }
 
-    // TODO factors foe each staking contract
-    /// @dev Initializes external staking distributor.
+    /// @dev Changes reward factors globally.
     /// @param _collectorRewardFactor Collector reward factor.
     /// @param _protocolRewardFactor Protocol reward factor.
     /// @param _curatingAgentRewardFactor Curating agent reward factor.
-    function changeRewardFactors(
+    function _changeRewardFactors(
         uint256 _collectorRewardFactor,
         uint256 _protocolRewardFactor,
         uint256 _curatingAgentRewardFactor
-    ) public {
-        // Check for ownership
-        if (msg.sender != owner) {
-            revert OwnerOnly(msg.sender, owner);
-        }
-
+    ) internal {
         // Check for MAX_REWARD_FACTOR overflow
         uint256 totalFactor = _collectorRewardFactor + _protocolRewardFactor + _curatingAgentRewardFactor;
         if (totalFactor > MAX_REWARD_FACTOR) {
@@ -291,6 +285,24 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         curatingAgentRewardFactor = _curatingAgentRewardFactor;
 
         emit RewardFactorsChanged(_collectorRewardFactor, _protocolRewardFactor, _curatingAgentRewardFactor);
+    }
+
+    // TODO factors foe each staking contract
+    /// @dev Initializes external staking distributor.
+    /// @param _collectorRewardFactor Collector reward factor.
+    /// @param _protocolRewardFactor Protocol reward factor.
+    /// @param _curatingAgentRewardFactor Curating agent reward factor.
+    function changeRewardFactors(
+        uint256 _collectorRewardFactor,
+        uint256 _protocolRewardFactor,
+        uint256 _curatingAgentRewardFactor
+    ) external {
+        // Check for ownership
+        if (msg.sender != owner) {
+            revert OwnerOnly(msg.sender, owner);
+        }
+
+        _changeRewardFactors(_collectorRewardFactor, _protocolRewardFactor, _curatingAgentRewardFactor);
     }
 
     /// @dev Changes token relayer address.
@@ -312,7 +324,8 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
 
     /// @dev Creates multisig and enables address(this) as module.
     /// @param agentInstance Agent instance address.
-    function _createMultisigWithSelfAsModule(address agentInstance) internal {
+    /// @return multisig Created multisig address.
+    function _createMultisigWithSelfAsModule(address agentInstance) internal returns (address multisig) {
         // Prepare Safe multisig data
         uint256 localNonce = _nonce;
         uint256 randomNonce = uint256(keccak256(abi.encodePacked(block.timestamp, msg.sender, localNonce)));
@@ -324,8 +337,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         address[] memory owners = new address[](1);
         owners[0] = address(this);
         bytes memory data = abi.encode(fallbackHandler, randomNonce);
-        address multisig =
-            ISafeMultisigWithRecoveryModule(safeMultisigWithRecoveryModule).create(owners, THRESHOLD, data);
+        multisig = ISafeMultisigWithRecoveryModule(safeMultisigWithRecoveryModule).create(owners, THRESHOLD, data);
 
         // Enable self as module
         bytes32 r = bytes32(uint256(uint160(address(this))));
@@ -399,7 +411,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         address agentInstance
     ) internal returns (uint256) {
         // Get service creation flag
-        bool createService = serviceId > 0 ? true : false;
+        bool createService = serviceId > 0 ? false : true;
 
         // Set agent params
         IService.AgentParams[] memory agentParams = new IService.AgentParams[](NUM_AGENT_INSTANCES);
@@ -431,14 +443,16 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         address multisig;
         if (createService) {
             // Create multisig with address(this) as module and swap owners to agentInstance
-            _createMultisigWithSelfAsModule(agentInstance);
+            multisig = _createMultisigWithSelfAsModule(agentInstance);
 
             // Deploy service via same address multisig
-            multisig = IService(serviceManager).deploy(serviceId, safeSameAddressMultisig, abi.encodePacked(multisig));
+            IService(serviceManager).deploy(serviceId, safeSameAddressMultisig, abi.encodePacked(multisig));
         } else {
+            // Get service multisig
+            (, multisig,,,,,) = IService(serviceRegistry).mapServices(serviceId);
+
             // Re-deploy service
-            bytes memory data = abi.encode(serviceId);
-            multisig = IService(serviceManager).deploy(serviceId, safeSameAddressMultisig, data);
+            multisig = IService(serviceManager).deploy(serviceId, safeSameAddressMultisig, abi.encodePacked(multisig));
         }
 
         emit Deployed(serviceId, multisig);
@@ -455,7 +469,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
     /// @dev Distributes rewards.
     /// @return balance Amount drained.
     function _distributeRewards(uint256 serviceId) internal returns (uint256 balance) {
-        // Get the service multisig
+        // Get service multisig
         (, address multisig,,,,,) = IService(serviceRegistry).mapServices(serviceId);
 
         // Get service curating agent address
