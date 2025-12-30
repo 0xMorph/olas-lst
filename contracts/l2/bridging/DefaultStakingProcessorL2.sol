@@ -241,7 +241,7 @@ abstract contract DefaultStakingProcessorL2 is IBridgeErrors {
             // These are low level calls since they must never revert
             if (target == externalStakingDistributor) {
                 bytes memory unstakeData = abi.encodeCall(IExternalStakingDistributor.withdraw, (amount, operation));
-                (success,) = stakingManager.call(unstakeData);
+                (success,) = externalStakingDistributor.call(unstakeData);
             } else {
                 bytes memory unstakeData = abi.encodeCall(IStakingManager.unstake, (target, amount, operation));
                 (success,) = stakingManager.call(unstakeData);

@@ -143,10 +143,12 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         uint256 indexed serviceId,
         uint256 stakingDeposit,
         uint256 stakedBalance,
+        uint256 transferAmount,
         uint256 unstakeRequestedAmount
     );
     event Deployed(uint256 indexed serviceId, address indexed multisig);
-    event RewardsDistributed(uint256 collectorAmount, uint256 protocolAmount, uint256 curatingAgentAmount);
+    event RewardsDistributed(uint256 indexed serviceId, address indexed multisig, uint256 collectorAmount,
+        uint256 protocolAmount, uint256 curatingAgentAmount);
     event SetStakingProxyTypes(address[] stakingProxies, bytes32[] proxyTypes);
     event Deposit(address indexed sender, uint256 amount, bytes32 operation);
     event Withdraw(address indexed sender, uint256 amount, bytes32 operation, uint256 unstakeRequestedAmount);
@@ -263,6 +265,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         owner = msg.sender;
     }
 
+    // TODO factors foe each staking contract
     /// @dev Initializes external staking distributor.
     /// @param _collectorRewardFactor Collector reward factor.
     /// @param _protocolRewardFactor Protocol reward factor.
@@ -272,8 +275,9 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         uint256 _protocolRewardFactor,
         uint256 _curatingAgentRewardFactor
     ) public {
-        if (owner != address(0)) {
-            revert AlreadyInitialized();
+        // Check for ownership
+        if (msg.sender != owner) {
+            revert OwnerOnly(msg.sender, owner);
         }
 
         // Check for MAX_REWARD_FACTOR overflow
@@ -509,7 +513,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
                 revert ExecutionFailed(multiSend, msPayload);
             }
 
-            emit RewardsDistributed(collectorAmount, protocolAmount, curatingAgentAmount);
+            emit RewardsDistributed(serviceId, multisig, collectorAmount, protocolAmount, curatingAgentAmount);
         }
     }
 
@@ -550,17 +554,16 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         }
 
         // Get current staked balance and update it
-        uint256 localStakedBalance = stakedBalance;
-        localStakedBalance += fullStakingDeposit;
+        uint256 localStakedBalance = stakedBalance + fullStakingDeposit;
         stakedBalance = localStakedBalance;
-
-        // Record service curating agent
-        mapServiceIdCuratingAgents[serviceId] = msg.sender;
 
         // Approve token for the serviceRegistryTokenUtility contract
         IToken(olas).approve(serviceRegistryTokenUtility, fullStakingDeposit);
 
         serviceId = _deployAndStake(stakingProxy, minStakingDeposit, serviceId, agentId, configHash, agentInstance);
+
+        // Record service curating agent
+        mapServiceIdCuratingAgents[serviceId] = msg.sender;
 
         emit ExternalServiceStaked(
             msg.sender, stakingProxy, serviceId, agentId, configHash, fullStakingDeposit, localStakedBalance
@@ -569,6 +572,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         _locked = 1;
     }
 
+    // TODO Naming
     /// @dev Unstakes, if needed, and withdraws specified amounts from specified staking contracts.
     /// @param stakingProxy Staking proxy address.
     /// @param serviceId Service Id.
@@ -585,9 +589,6 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         if (msg.sender != owner && msg.sender != serviceCuratingAgent) {
             revert UnauthorizedAccount(msg.sender);
         }
-
-        // Get current unstake requested amount
-        uint256 unstakeRequestedAmount = mapUnstakeOperationRequestedAmounts[operation];
 
         uint256 fullStakingDeposit;
         uint256 localStakedBalance;
@@ -621,25 +622,41 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
             delete mapServiceIdCuratingAgents[serviceId];
         }
 
-        uint256 amount = IToken(olas).balanceOf(address(this));
-        // Check if OLAS balance is not enough to cover requested unstake operation amount
-        if (unstakeRequestedAmount > amount) {
-            unstakeRequestedAmount -= amount;
-            // Update unstake requested amount
-            mapUnstakeOperationRequestedAmounts[operation] = unstakeRequestedAmount;
-        } else {
-            mapUnstakeOperationRequestedAmounts[operation] = 0;
+        // Get current unstake requested amount
+        uint256 unstakeRequestedAmount = mapUnstakeOperationRequestedAmounts[operation];
+
+        // Check if requested amount is not zero
+        if (unstakeRequestedAmount > 0) {
+            // Get current balance
+            uint256 amount = IToken(olas).balanceOf(address(this));
+            // Check for zero balance
+            if (amount == 0) {
+                revert ZeroValue();
+            }
+
+            // Check if OLAS balance is not enough to cover requested unstake operation amount
+            if (unstakeRequestedAmount > amount) {
+                unstakeRequestedAmount -= amount;
+                // Update unstake requested amount
+                mapUnstakeOperationRequestedAmounts[operation] = unstakeRequestedAmount;
+            } else {
+                amount = unstakeRequestedAmount;
+                mapUnstakeOperationRequestedAmounts[operation] = 0;
+            }
+
+            // Approve OLAS for collector to initiate L1 transfer for corresponding operation later by agents / operators
+            IToken(olas).approve(collector, amount);
+
+            // Request top-up by Collector for a specific unstake operation
+            ICollector(collector).topUpBalance(amount, operation);
+
+            // TODO how much requested vs how much transferred
+            emit ExternalServiceUnstaked(
+                msg.sender, stakingProxy, serviceId, fullStakingDeposit, localStakedBalance, amount, unstakeRequestedAmount
+            );
         }
 
-        // Approve OLAS for collector to initiate L1 transfer for corresponding operation later by agents / operators
-        IToken(olas).approve(collector, amount);
-
-        // Request top-up by Collector for a specific unstake operation
-        ICollector(collector).topUpBalance(amount, operation);
-
-        emit ExternalServiceUnstaked(
-            msg.sender, stakingProxy, serviceId, fullStakingDeposit, localStakedBalance, unstakeRequestedAmount
-        );
+        // TODO else event / unstake
 
         _locked = 1;
     }
@@ -680,6 +697,11 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         }
         _locked = 2;
 
+        // Check for l2StakingProcessor to be a sender
+        if (msg.sender != l2StakingProcessor) {
+            revert UnauthorizedAccount(msg.sender);
+        }
+
         // Get OLAS from l2StakingProcessor or any other account
         IToken(olas).transferFrom(msg.sender, address(this), amount);
 
@@ -688,6 +710,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         _locked = 1;
     }
 
+    // TODO Naming
     /// @dev Requests withdraw via specified unstake operation.
     /// @param amount Unstake amount.
     /// @param operation Unstake operation type.
