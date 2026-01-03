@@ -673,7 +673,9 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
             revert OwnerOnly(msg.sender, owner);
         }
 
+        // Get number of proxies
         uint256 numProxies = stakingProxies.length;
+        // Check for array length
         if (numProxies == 0 || numProxies != configs.length) {
             revert WrongArrayLength();
         }
@@ -715,7 +717,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         emit SetStakingProxyConfigs(stakingProxies, configs);
     }
 
-    /// @dev Sets staking proxy types.
+    /// @dev Sets managing agents statuses.
     /// @param managingAgents Set of managing agents.
     /// @param statuses Corresponding set of statuses: true / false.
     function setManagingAgents(address[] memory managingAgents, bool[] memory statuses) external {
@@ -724,12 +726,14 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
             revert OwnerOnly(msg.sender, owner);
         }
 
+        // Get number of agents
         uint256 numAgents = managingAgents.length;
+        // Check for array length
         if (numAgents == 0 || numAgents != statuses.length) {
             revert WrongArrayLength();
         }
 
-        // Traverse staking proxies
+        // Traverse managing agents
         for (uint256 i = 0; i < numAgents; ++i) {
             // Check for zero address
             if (managingAgents[i] == address(0)) {
@@ -832,7 +836,6 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
 
         // Get number of proxies
         uint256 numProxies = stakingProxies.length;
-
         // Check for correct array length
         if (numProxies == 0 || serviceIds.length != numProxies) {
             revert WrongArrayLength();
