@@ -2,6 +2,7 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
+const safeContracts = require("@gnosis.pm/safe-contracts");
 
 describe("Liquid Staking", function () {
     let serviceRegistry;
@@ -56,7 +57,7 @@ describe("Liquid Staking", function () {
     const livenessPeriod = oneDay; // 24 hours
     const initSupply = "5" + "0".repeat(26);
     const livenessRatio = "1"; // minimal possible value
-    const externalLivenessRatio = "1" + "0".repeat(16); // 0.01 transaction per second (TPS)
+    const externalLivenessRatio = "1" + "0".repeat(12);
     const maxNumServices = 100;
     const minStakingDeposit = regDeposit;
     const fullStakeDeposit = regDeposit.mul(2);
@@ -1765,6 +1766,45 @@ describe("Liquid Staking", function () {
             // Stake service - create new one with serviceId == 0
             const agentInstanceAddress = signers[1].address;
             await externalStakingDistributor.stake(externalStakingTokenAddress, 0, agentId, defaultHash, agentInstanceAddress);
+
+            // Get the service multisig contract
+            let service = await serviceRegistry.getService(serviceId);
+            let multisig = await ethers.getContractAt("GnosisSafe", service.multisig);
+
+            // Make transactions by the service multisig
+            let nonce = await multisig.nonce();
+            let txHashData = await safeContracts.buildContractCall(multisig, "getThreshold", [], nonce, 0, 0);
+            let signMessageData = await safeContracts.safeSignMessage(signers[1], multisig, txHashData, 0);
+            await safeContracts.executeTx(multisig, txHashData, [signMessageData], 0);
+
+            // Increase the time for the liveness period
+            await helpers.time.increase(maxInactivity);
+
+            // Checkpoint
+            await externalStakingTokenInstance.checkpoint();
+
+            // Claim and distribute rewards
+            await externalStakingDistributor.claim([externalStakingTokenAddress], [serviceId]);
+
+            // Check Collector balance
+            let collectorBalance = await olas.balanceOf(collector.address);
+            console.log(collectorBalance);
+            expect(collectorBalance).to.not.eq(0);
+
+            // Relay rewards to L1
+            console.log("Calling relay rewards tokens to L1 by agent or manually");
+            await collector.relayTokens(rewardOperation, bridgePayload);
+
+            console.log("\nL1");
+            const distributorBalance = await olas.balanceOf(distributor.address);
+            console.log("Distributor balance now:", distributorBalance.toString());
+            // Distribute OLAS to veOLAS and stOLAS
+            console.log("Calling distribute obtained L2 to L1 OLAS to veOLAS and stOLAS by agent or manually");
+            await distributor.distribute();
+
+            console.log("stakedBalance after distribute:", await st.stakedBalance());
+            console.log("vaultBalance after distribute:", await st.vaultBalance());
+            console.log("reserveBalance after distribute:", await st.reserveBalance());
 
             // Restore a previous state of blockchain
             snapshot.restore();

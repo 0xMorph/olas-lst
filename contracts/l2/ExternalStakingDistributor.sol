@@ -6,7 +6,7 @@ import {Implementation, OwnerOnly, ZeroAddress} from "../Implementation.sol";
 import {IService} from "../interfaces/IService.sol";
 import {IStaking} from "../interfaces/IStaking.sol";
 import {IToken, INFToken} from "../interfaces/IToken.sol";
-
+import "hardhat/console.sol";
 // Collector interface
 interface ICollector {
     /// @dev Tops up address(this) with a specified amount according to a selected operation.
@@ -414,8 +414,9 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         // Approve service NFT for staking instance
         INFToken(serviceRegistry).approve(stakingProxy, serviceId);
 
+        // TODO
         // Stake service
-        IStaking(stakingProxy).stake(serviceId);
+        IStaking(stakingProxy).stake(serviceId, 2);
 
         return serviceId;
     }
@@ -445,13 +446,13 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
             uint256 config = mapStakingProxyConfigs[stakingProxy];
 
             // Unwrap config
-            (uint256 collectorAmount, uint256 protocolAmount, uint256 curatingAgentAmount, StakingType stakingType) =
+            (uint256 collectorAmount, uint256 protocolAmount, , StakingType stakingType) =
                 unwrapStakingConfig(config);
 
             // Calculate reward distribution
-            collectorAmount = (balance * collectorRewardFactor) / MAX_REWARD_FACTOR;
-            protocolAmount = (balance * protocolRewardFactor) / MAX_REWARD_FACTOR;
-            curatingAgentAmount = balance - collectorAmount - protocolAmount;
+            collectorAmount = (balance * collectorAmount) / MAX_REWARD_FACTOR;
+            protocolAmount = (balance * protocolAmount) / MAX_REWARD_FACTOR;
+            uint256 curatingAgentAmount = balance - collectorAmount - protocolAmount;
 
             // Encode OLAS approve function call for collector
             bytes memory data = abi.encodeCall(IToken.approve, (collector, collectorAmount + protocolAmount));
@@ -827,6 +828,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
 
             // Claim reward
             rewards[i] = IStaking(stakingProxies[i]).claim(serviceIds[i]);
+            console.log(rewards[i]);
         }
 
         // Distribute rewards
