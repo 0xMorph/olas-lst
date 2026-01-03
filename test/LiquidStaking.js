@@ -319,7 +319,7 @@ describe("Liquid Staking", function () {
         await externalStakingDistributorProxy.deployed();
         externalStakingDistributor = await ethers.getContractAt("ExternalStakingDistributor", externalStakingDistributorProxy.address);
 
-        // Fund staking manager with native to support staking creation
+        // Fund external staking distributor with native to support staking creation
         await deployer.sendTransaction({to: externalStakingDistributor.address, value: ethers.utils.parseEther("1")});
 
         const BridgeRelayer = await ethers.getContractFactory("BridgeRelayer");

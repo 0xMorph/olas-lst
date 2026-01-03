@@ -3220,7 +3220,7 @@ hardhat-tracer@^3.1.0:
     ethers "^5.6.1"
     semver "^7.6.2"
 
-hardhat@^2.28.2:
+hardhat@^2.26.3:
   version "2.28.2"
   resolved "https://registry.yarnpkg.com/hardhat/-/hardhat-2.28.2.tgz#6ec9da13fffeecbb954f598d5081271ed11bfcb6"
   integrity sha512-CPaMFgCU5+sLO0Kos82xWLGC9YldRRBRydj5JT4v00+ShAg4C6Up2jAgP9+dTPVkMOMTfQc05mOo2JreMX5z3A==
