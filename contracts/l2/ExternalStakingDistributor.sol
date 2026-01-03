@@ -6,7 +6,7 @@ import {Implementation, OwnerOnly, ZeroAddress} from "../Implementation.sol";
 import {IService} from "../interfaces/IService.sol";
 import {IStaking} from "../interfaces/IStaking.sol";
 import {IToken, INFToken} from "../interfaces/IToken.sol";
-import "hardhat/console.sol";
+
 // Collector interface
 interface ICollector {
     /// @dev Tops up address(this) with a specified amount according to a selected operation.
@@ -828,7 +828,6 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
 
             // Claim reward
             rewards[i] = IStaking(stakingProxies[i]).claim(serviceIds[i]);
-            console.log(rewards[i]);
         }
 
         // Distribute rewards
