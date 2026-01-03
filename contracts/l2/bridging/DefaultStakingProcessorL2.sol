@@ -35,10 +35,10 @@ interface IExternalStakingDistributor {
     /// @param operation Stake operation type.
     function deposit(uint256 amount, bytes32 operation) external;
 
-    /// @dev Requests withdraw via specified unstake operation.
-    /// @param amount Unstake amount.
+    /// @dev Requests withdraw via specified unstake operation, and request to add to unstake amount, if required.
+    /// @param amount Specified unstake amount.
     /// @param operation Unstake operation type.
-    function withdraw(uint256 amount, bytes32 operation) external;
+    function withdrawAndRequestUnstake(uint256 amount, bytes32 operation) external;
 }
 
 // Necessary ERC20 token interface
@@ -240,7 +240,8 @@ abstract contract DefaultStakingProcessorL2 is IBridgeErrors {
             // Note that if UNSTAKE* is requested, it must be finalized in any case since changes are recorded on L1
             // These are low level calls since they must never revert
             if (target == externalStakingDistributor) {
-                bytes memory unstakeData = abi.encodeCall(IExternalStakingDistributor.withdraw, (amount, operation));
+                bytes memory unstakeData =
+                    abi.encodeCall(IExternalStakingDistributor.withdrawAndRequestUnstake, (amount, operation));
                 (success,) = externalStakingDistributor.call(unstakeData);
             } else {
                 bytes memory unstakeData = abi.encodeCall(IStakingManager.unstake, (target, amount, operation));
