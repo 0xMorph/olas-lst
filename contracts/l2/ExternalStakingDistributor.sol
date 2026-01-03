@@ -150,15 +150,6 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         uint256 stakingDeposit,
         uint256 stakedBalance
     );
-    event ExternalServiceUnstaked(
-        address indexed sender,
-        address indexed stakingProxy,
-        uint256 indexed serviceId,
-        uint256 stakingDeposit,
-        uint256 stakedBalance,
-        uint256 transferAmount,
-        uint256 unstakeRequestedAmount
-    );
     event Deployed(uint256 indexed serviceId, address indexed multisig);
     event RewardsDistributed(
         uint256 indexed serviceId,
@@ -197,7 +188,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
     // Safe multisig with recovery module processing contract address
     address public immutable safeMultisigWithRecoveryModule;
     // Safe same address multisig processing contract address
-    address public safeSameAddressMultisig;
+    address public immutable safeSameAddressMultisig;
     // Safe fallback handler address
     address public immutable fallbackHandler;
     // Multisend contract address
@@ -322,23 +313,6 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         // Enable self as module
         bytes32 r = bytes32(uint256(uint160(address(this))));
         bytes memory signature = abi.encodePacked(r, bytes32(0), uint8(1));
-
-        //        // TODO check multisend
-        //        // Encode enable module function call
-        //        data = abi.encodeCall(ISafe.enableModule, (address(this)));
-        //
-        //        // Execute multisig transaction
-        //        ISafe(multisig).execTransaction(
-        //            multisig, 0, data, ISafe.Operation.Call, 0, 0, 0, address(0), payable(address(0)), signature
-        //        );
-        //
-        //        // Encode swap owner function call
-        //        data = abi.encodeCall(ISafe.swapOwner, (address(0x1), address(this), agentInstance));
-        //
-        //        // Execute multisig transaction
-        //        ISafe(multisig).execTransaction(
-        //            multisig, 0, data, ISafe.Operation.Call, 0, 0, 0, address(0), payable(address(0)), signature
-        //        );
 
         // Encode enable module function call
         data = abi.encodeCall(ISafe.enableModule, (address(this)));
@@ -878,8 +852,8 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
     ) public pure returns (uint256 config) {
         // Staking config: collectorRewardFactor 16 bits | protocolRewardFactor 16 bits
         //                 | curatingAgentRewardFactor 16 bits | stakingType 8 bits
-        config = uint8(stakingType) | uint16(curatingAgentRewardFactor) << 8 | uint16(protocolRewardFactor) << 24
-            | (uint16(protocolRewardFactor)) << 40;
+        config = uint8(stakingType) | curatingAgentRewardFactor << 8 | protocolRewardFactor << 24
+            | collectorRewardFactor << 40;
     }
 
     /// @dev Unwraps staking proxy config: reward factors and staking type value.
@@ -900,10 +874,10 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
     {
         // Staking config: collectorRewardFactor 16 bits | protocolRewardFactor 16 bits
         //                 | curatingAgentRewardFactor 16 bits | stakingType 8 bits
-        collectorRewardFactor = uint16(config >> 40);
+        collectorRewardFactor = config >> 40;
         protocolRewardFactor = uint16(config >> 24);
         curatingAgentRewardFactor = uint16(config >> 8);
-        stakingType = StakingType(config);
+        stakingType = StakingType(uint8(config));
     }
 
     /// @dev Receives native funds for mock Service Registry minimal payments.

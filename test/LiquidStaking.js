@@ -22,6 +22,7 @@ describe("Liquid Staking", function () {
     let recoveryModule;
     let safeMultisigWithRecoveryModule;
     let activityChecker;
+    let externalActivityChecker;
     let stakingFactory;
     let stakingVerifier;
     let lock;
@@ -36,6 +37,7 @@ describe("Liquid Staking", function () {
     let stakingManager;
     let externalStakingDistributor;
     let stakingTokenImplementation;
+    let externalStakingTokenImplementation;
     let stakingTokenInstance;
     let gnosisDepositProcessorL1;
     let gnosisStakingProcessorL2;
@@ -54,6 +56,7 @@ describe("Liquid Staking", function () {
     const livenessPeriod = oneDay; // 24 hours
     const initSupply = "5" + "0".repeat(26);
     const livenessRatio = "1"; // minimal possible value
+    const externalLivenessRatio = "1" + "0".repeat(16); // 0.01 transaction per second (TPS)
     const maxNumServices = 100;
     const minStakingDeposit = regDeposit;
     const fullStakeDeposit = regDeposit.mul(2);
@@ -316,7 +319,7 @@ describe("Liquid Staking", function () {
         externalStakingDistributor = await ethers.getContractAt("ExternalStakingDistributor", externalStakingDistributorProxy.address);
 
         // Fund staking manager with native to support staking creation
-        await deployer.sendTransaction({to: stakingManager.address, value: ethers.utils.parseEther("1")});
+        await deployer.sendTransaction({to: externalStakingDistributor.address, value: ethers.utils.parseEther("1")});
 
         const BridgeRelayer = await ethers.getContractFactory("BridgeRelayer");
         bridgeRelayer = await BridgeRelayer.deploy(olas.address);
@@ -369,6 +372,17 @@ describe("Liquid Staking", function () {
         const stakingTokenAddress = "0x" + res.logs[0].topics[2].slice(26);
         stakingTokenInstance = await ethers.getContractAt("StakingTokenLocked", stakingTokenAddress);
 
+        const ExternalActivityChecker = await ethers.getContractFactory("StakingActivityChecker");
+        externalActivityChecker = await ExternalActivityChecker.deploy(externalLivenessRatio);
+        await externalActivityChecker.deployed();
+
+        const StakingToken = await ethers.getContractFactory("StakingToken");
+        externalStakingTokenImplementation = await StakingToken.deploy();
+        await externalStakingTokenImplementation.deployed();
+
+        // Whitelist external staking implementation
+        await stakingVerifier.setImplementationsStatuses([externalStakingTokenImplementation.address], [true], true);
+
         // Set service manager
         await serviceRegistry.changeManager(serviceManager.address);
         await serviceRegistryTokenUtility.changeManager(serviceManager.address);
@@ -377,7 +391,7 @@ describe("Liquid Staking", function () {
         await serviceRegistry.changeMultisigPermission(gnosisSafeMultisig.address, true);
         await serviceRegistry.changeMultisigPermission(gnosisSafeSameAddressMultisig.address, true);
 
-        // Fund the staking contract
+        // Fund staking contract
         await olas.approve(stakingTokenAddress, stakingSupply);
         await stakingTokenInstance.deposit(stakingSupply);
 
@@ -1662,6 +1676,95 @@ describe("Liquid Staking", function () {
             // Check that the only amount is in reserve
             const totalAssets = await st.totalAssets();
             expect(totalAssets).to.equal(reserveBalance);
+
+            // Restore a previous state of blockchain
+            snapshot.restore();
+        });
+
+        it("External staking", async function () {
+            // Max timeout 1600 sec for coverage
+            this.timeout(1600000);
+
+            // Take a snapshot of the current state of the blockchain
+            const snapshot = await helpers.takeSnapshot();
+
+            console.log("L1");
+
+            // Get OLAS amount to stake
+            const olasAmount = minStakingDeposit.mul(8).div(3);
+            console.log("User deposits OLAS amount:", olasAmount.toString());
+
+            // Approve OLAS for depository
+            await olas.approve(depository.address, initSupply);
+
+            // Deposit OLAS on L1
+            console.log("User deposits OLAS for stOLAS");
+            await depository.deposit(olasAmount, [], [], [], []);
+            let stBalance = await st.balanceOf(deployer.address);
+            console.log("User stOLAS balance now:", stBalance.toString());
+
+            let stakedBalance = await st.stakedBalance();
+            let vaultBalance = await st.vaultBalance();
+            let reserveBalance = await st.reserveBalance();
+
+            // Check that the only amount is in reserve
+            const totalAssets = await st.totalAssets();
+            expect(totalAssets).to.equal(reserveBalance);
+
+            // Whitelist externalStakingDistributor
+            await depository.setExternalStakingDistributorChainIds([gnosisChainId], [externalStakingDistributor.address]);
+
+            // Deposit funds for external staking
+            await depository.depositExternal([gnosisChainId], [olasAmount], [bridgePayload], [0]);
+
+            // Check OLAS balance
+            let externalBalance = await olas.balanceOf(externalStakingDistributor.address);
+            expect(externalBalance).to.equal(olasAmount);
+
+            // Create external staking contract
+            let externalServiceParams = {
+                metadataHash: defaultHash,
+                maxNumServices: 3,
+                rewardsPerSecond: "5" + "0".repeat(14),
+                minStakingDeposit: regDeposit,
+                minNumStakingPeriods: 3,
+                maxNumInactivityPeriods: 3,
+                livenessPeriod: 10, // Ten seconds
+                timeForEmissions: 100,
+                numAgentInstances: 1,
+                agentIds: [],
+                threshold: 0,
+                configHash: HashZero,
+                proxyHash: bytecodeHash,
+                serviceRegistry: serviceRegistry.address,
+                activityChecker: externalActivityChecker.address
+            };
+            const maxInactivity = externalServiceParams.maxNumInactivityPeriods * livenessPeriod + 1;
+            // Service multisig
+            const rewardDistributionType = 2;
+
+            // Deploy staking proxy
+            let initPayload = externalStakingTokenImplementation.interface.encodeFunctionData("initialize",
+                [externalServiceParams, serviceRegistryTokenUtility.address, olas.address]);
+            let tx = await stakingFactory.createStakingInstance(externalStakingTokenImplementation.address, initPayload);
+            let res = await tx.wait();
+            // Get staking contract instance address from the event
+            const externalStakingTokenAddress = "0x" + res.logs[0].topics[2].slice(26);
+            const externalStakingTokenInstance = await ethers.getContractAt("StakingToken", externalStakingTokenAddress);
+
+            // Create staking proxy config: 80% of rewards - to stOLAS, 17.5% - to protocol, 2.5% - to curating agent
+            const stakingConfigValue = await externalStakingDistributor.wrapStakingConfig(8000, 1750, 250, 0);
+
+            // Whitelist staking proxy
+            await externalStakingDistributor.setStakingProxyConfigs([externalStakingTokenAddress], [stakingConfigValue]);
+
+            // Fund staking contract
+            await olas.approve(externalStakingTokenAddress, stakingSupply);
+            await externalStakingTokenInstance.deposit(stakingSupply);
+
+            // Stake service - create new one with serviceId == 0
+            const agentInstanceAddress = signers[1].address;
+            await externalStakingDistributor.stake(externalStakingTokenAddress, 0, agentId, defaultHash, agentInstanceAddress);
 
             // Restore a previous state of blockchain
             snapshot.restore();
