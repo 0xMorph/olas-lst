@@ -28,14 +28,6 @@ interface IStaking {
     /// @param serviceId Service Id.
     function stake(uint256 serviceId) external;
 
-    /// @dev Stakes service with specified reward distribution info.
-    /// @notice Each service must be staked for a minimum of maxInactivityDuration time, or until the funds are not zero.
-    ///         maxInactivityDuration = maxNumInactivityPeriods * livenessPeriod
-    /// @param serviceId Service Id.
-    /// @param rewardDistributionInfo Reward distribution info: rewardDistributionType and customRewardsDistributor
-    ///        address, if required.
-    function stake(uint256 serviceId, uint256 rewardDistributionInfo) external;
-
     /// @dev Unstakes the service with collected reward, if available.
     /// @param serviceId Service Id.
     /// @return reward Staking reward.

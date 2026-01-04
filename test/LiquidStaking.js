@@ -94,12 +94,6 @@ describe("Liquid Staking", function () {
     const rewardOperation = "0x0b9821ae606ebc7c79bf3390bdd3dc93e1b4a7cda27aad60646e7b88ff55b001";
     const unstakeOperation = "0x8ca9a95e41b5eece253c93f5b31eed1253aed6b145d8a6e14d913fdf8e732293";
     const unstakeRetiredOperation = "0x9065ad15d9673159e4597c86084aff8052550cec93c5a6e44b3f1dba4c8731b3";
-    // Collector reward factor
-    const collectorRewardFactor = "8000";
-    // Protocol reward factor
-    const protocolRewardFactor = "1750";
-    // Curating agent reward factor
-    const curatingAgentRewardFactor = "250";
 
     beforeEach(async function () {
         signers = await ethers.getSigners();
@@ -313,8 +307,7 @@ describe("Liquid Staking", function () {
 
         // Initialize externalStakingDistributor
         const ExternalStakingDistributorProxy = await ethers.getContractFactory("Proxy");
-        initPayload = externalStakingDistributor.interface.encodeFunctionData("initialize", [collectorRewardFactor,
-            protocolRewardFactor, curatingAgentRewardFactor]);
+        initPayload = externalStakingDistributor.interface.encodeFunctionData("initialize", []);
         const externalStakingDistributorProxy = await ExternalStakingDistributorProxy.deploy(externalStakingDistributor.address, initPayload);
         await externalStakingDistributorProxy.deployed();
         externalStakingDistributor = await ethers.getContractAt("ExternalStakingDistributor", externalStakingDistributorProxy.address);
@@ -1754,7 +1747,8 @@ describe("Liquid Staking", function () {
             const externalStakingTokenInstance = await ethers.getContractAt("StakingToken", externalStakingTokenAddress);
 
             // Create staking proxy config: 80% of rewards - to stOLAS, 17.5% - to protocol, 2.5% - to curating agent
-            const stakingConfigValue = await externalStakingDistributor.wrapStakingConfig(8000, 1750, 250, 0);
+            // Staking type - STAKING_TYPE_OLAS_V2
+            const stakingConfigValue = await externalStakingDistributor.wrapStakingConfig(8000, 1750, 250, 1);
 
             // Whitelist staking proxy
             await externalStakingDistributor.setStakingProxyConfigs([externalStakingTokenAddress], [stakingConfigValue]);

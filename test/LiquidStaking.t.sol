@@ -127,14 +127,6 @@ contract LiquidStakingTest is Test {
     // Bridge payload
     bytes public constant BRIDGE_PAYLOAD = "";
 
-    // Collector reward factor
-    uint256 public collectorRewardFactor = 8_000;
-    // Protocol reward factor
-    uint256 public protocolRewardFactor = 1_750;
-    // Curating agent reward factor
-    uint256 public curatingAgentRewardFactor = 250;
-
-
     function setUp() public virtual {
         utils = new Utils();
         users = utils.createUsers(20);
@@ -250,8 +242,7 @@ contract LiquidStakingTest is Test {
         ExternalStakingDistributor externalStakingDistributorImplementation = new ExternalStakingDistributor(address(olas),
             address(serviceManager), address(safeMultisigWithRecoveryModule), address(gnosisSafeSameAddressMultisig),
             address(fallbackHandler), address(multiSend), address(collector));
-        initPayload = abi.encodeWithSelector(externalStakingDistributorImplementation.initialize.selector, collectorRewardFactor,
-            protocolRewardFactor, curatingAgentRewardFactor);
+        initPayload = abi.encodeWithSelector(externalStakingDistributorImplementation.initialize.selector, ());
         Proxy externalStakingDistributorProxy = new Proxy(address(externalStakingDistributorImplementation), initPayload);
         externalStakingDistributor = ExternalStakingDistributor(payable(address(externalStakingDistributorProxy)));
 
