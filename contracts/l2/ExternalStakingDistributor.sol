@@ -105,6 +105,9 @@ error ZeroValue();
 /// @dev The contract is already initialized.
 error AlreadyInitialized();
 
+/// @dev Wrong length of arrays.
+error WrongArrayLength();
+
 /// @dev Value overflow.
 /// @param provided Overflow value.
 /// @param max Maximum possible value.
@@ -122,11 +125,18 @@ error ReentrancyGuard();
 /// @param payload Payload data.
 error ExecutionFailed(address target, bytes payload);
 
+/// @dev Staking type is not supported.
+/// @param stakingType Staking type.
+error UnsupportedStakingType(uint8 stakingType);
+
 /// @title ExternalStakingDistributor - Smart contract for distributing OLAS across external staking contracts
 contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
-    event RewardFactorsChanged(
-        uint256 collectorRewardFactor, uint256 protocolRewardFactor, uint256 curatingAgentRewardFactor
-    );
+    // Staking type enum
+    enum StakingType {
+        STAKING_TYPE_OLAS_V1,
+        STAKING_TYPE_OLAS_V2
+    }
+
     event StakingProcessorL2Updated(address indexed l2StakingProcessor);
     event ExternalServiceStaked(
         address indexed sender,
@@ -142,16 +152,20 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         address indexed stakingProxy,
         uint256 indexed serviceId,
         uint256 stakingDeposit,
-        uint256 stakedBalance,
-        uint256 transferAmount,
-        uint256 unstakeRequestedAmount
+        uint256 stakedBalance
     );
     event Deployed(uint256 indexed serviceId, address indexed multisig);
-    event RewardsDistributed(uint256 indexed serviceId, address indexed multisig, uint256 collectorAmount,
-        uint256 protocolAmount, uint256 curatingAgentAmount);
-    event SetStakingProxyTypes(address[] stakingProxies, bytes32[] proxyTypes);
-    event Deposit(address indexed sender, uint256 amount, bytes32 operation);
-    event Withdraw(address indexed sender, uint256 amount, bytes32 operation, uint256 unstakeRequestedAmount);
+    event RewardsDistributed(
+        uint256 indexed serviceId,
+        address indexed multisig,
+        uint256 collectorAmount,
+        uint256 protocolAmount,
+        uint256 curatingAgentAmount
+    );
+    event SetStakingProxyConfigs(address[] stakingProxies, uint256[] proxyTypes);
+    event SetManagingAgentStatuses(address[] managingAgents, bool[] statuses);
+    event Deposit(address indexed sender, bytes32 indexed operation, uint256 amount);
+    event Withdraw(address indexed sender, bytes32 indexed operation, uint256 amount, uint256 unstakeRequestedAmount);
     event Claimed(address[] stakingProxies, uint256[] serviceIds, uint256[] rewards);
     event NativeTokenReceived(uint256 amount);
 
@@ -159,14 +173,12 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
     string public constant VERSION = "0.1.0";
     // Reward transfer operation
     bytes32 public constant REWARD = 0x0b9821ae606ebc7c79bf3390bdd3dc93e1b4a7cda27aad60646e7b88ff55b001;
-    // Staking type: generic OLAS V1
-    bytes32 public constant STAKING_TYPE_OLAS_V1 = 0xdbeba05bf894aa66d04900d63d8bb3ce8d6e45fc66b64d81de6e5cfcb445fca1;
 
     // Number of agent instances
     uint256 public constant NUM_AGENT_INSTANCES = 1;
     // Threshold
     uint256 public constant THRESHOLD = 1;
-    // Max reward factor
+    // Max reward factor: 10k is enough to handle 0..100.00% with a step of 0.01%
     uint256 public constant MAX_REWARD_FACTOR = 10_000;
 
     // Service manager address
@@ -180,7 +192,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
     // Safe multisig with recovery module processing contract address
     address public immutable safeMultisigWithRecoveryModule;
     // Safe same address multisig processing contract address
-    address public safeSameAddressMultisig;
+    address public immutable safeSameAddressMultisig;
     // Safe fallback handler address
     address public immutable fallbackHandler;
     // Multisend contract address
@@ -190,12 +202,6 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
 
     // Staked balance
     uint256 public stakedBalance;
-    // Collector reward factor
-    uint256 public collectorRewardFactor;
-    // Protocol reward factor
-    uint256 public protocolRewardFactor;
-    // Curating agent reward factor
-    uint256 public curatingAgentRewardFactor;
     // L2 staking processor address
     address public l2StakingProcessor;
 
@@ -204,12 +210,16 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
     // Reentrancy lock
     uint256 internal _locked = 1;
 
-    // Mapping of whitelisted staking proxy address => staking type
-    mapping(address => bytes32) public mapStakingProxyTypes;
-    // Mapping of service Id => agent address curating it
-    mapping(uint256 => address) public mapServiceIdCuratingAgents;
+    // Mapping of whitelisted staking proxy address => (staking reward distributions | staking type)
+    // Staking config: collectorRewardFactor 16 bits | protocolRewardFactor 16 bits
+    //                 | curatingAgentRewardFactor 16 bits | stakingType 8 bits
+    mapping(address => uint256) public mapStakingProxyConfigs;
     // Mapping of unstake requests: unstake operation => amount requested
     mapping(bytes32 => uint256) public mapUnstakeOperationRequestedAmounts;
+    // Mapping of service Id => agent address curating it
+    mapping(uint256 => address) public mapServiceIdCuratingAgents;
+    // Mapping of whitelisted managing agent addresses
+    mapping(address => bool) public mapManagingAgents;
 
     /// @dev ExternalStakingDistributor constructor.
     /// @param _olas OLAS token address.
@@ -249,60 +259,12 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
     }
 
     /// @dev Initializes external staking distributor.
-    /// @param _collectorRewardFactor Collector reward factor.
-    /// @param _protocolRewardFactor Protocol reward factor.
-    /// @param _curatingAgentRewardFactor Curating agent reward factor.
-    function initialize(
-        uint256 _collectorRewardFactor,
-        uint256 _protocolRewardFactor,
-        uint256 _curatingAgentRewardFactor
-    ) external {
+    function initialize() external {
         if (owner != address(0)) {
             revert AlreadyInitialized();
         }
 
-        _changeRewardFactors(_collectorRewardFactor, _protocolRewardFactor, _curatingAgentRewardFactor);
         owner = msg.sender;
-    }
-
-    /// @dev Changes reward factors globally.
-    /// @param _collectorRewardFactor Collector reward factor.
-    /// @param _protocolRewardFactor Protocol reward factor.
-    /// @param _curatingAgentRewardFactor Curating agent reward factor.
-    function _changeRewardFactors(
-        uint256 _collectorRewardFactor,
-        uint256 _protocolRewardFactor,
-        uint256 _curatingAgentRewardFactor
-    ) internal {
-        // Check for MAX_REWARD_FACTOR overflow
-        uint256 totalFactor = _collectorRewardFactor + _protocolRewardFactor + _curatingAgentRewardFactor;
-        if (totalFactor > MAX_REWARD_FACTOR) {
-            revert Overflow(totalFactor, MAX_REWARD_FACTOR);
-        }
-
-        collectorRewardFactor = _collectorRewardFactor;
-        protocolRewardFactor = _protocolRewardFactor;
-        curatingAgentRewardFactor = _curatingAgentRewardFactor;
-
-        emit RewardFactorsChanged(_collectorRewardFactor, _protocolRewardFactor, _curatingAgentRewardFactor);
-    }
-
-    // TODO factors foe each staking contract
-    /// @dev Initializes external staking distributor.
-    /// @param _collectorRewardFactor Collector reward factor.
-    /// @param _protocolRewardFactor Protocol reward factor.
-    /// @param _curatingAgentRewardFactor Curating agent reward factor.
-    function changeRewardFactors(
-        uint256 _collectorRewardFactor,
-        uint256 _protocolRewardFactor,
-        uint256 _curatingAgentRewardFactor
-    ) external {
-        // Check for ownership
-        if (msg.sender != owner) {
-            revert OwnerOnly(msg.sender, owner);
-        }
-
-        _changeRewardFactors(_collectorRewardFactor, _protocolRewardFactor, _curatingAgentRewardFactor);
     }
 
     /// @dev Changes token relayer address.
@@ -342,23 +304,6 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         // Enable self as module
         bytes32 r = bytes32(uint256(uint160(address(this))));
         bytes memory signature = abi.encodePacked(r, bytes32(0), uint8(1));
-
-        //        // TODO multisend maybe?
-        //        // Encode enable module function call
-        //        data = abi.encodeCall(ISafe.enableModule, (address(this)));
-        //
-        //        // Execute multisig transaction
-        //        ISafe(multisig).execTransaction(
-        //            multisig, 0, data, ISafe.Operation.Call, 0, 0, 0, address(0), payable(address(0)), signature
-        //        );
-        //
-        //        // Encode swap owner function call
-        //        data = abi.encodeCall(ISafe.swapOwner, (address(0x1), address(this), agentInstance));
-        //
-        //        // Execute multisig transaction
-        //        ISafe(multisig).execTransaction(
-        //            multisig, 0, data, ISafe.Operation.Call, 0, 0, 0, address(0), payable(address(0)), signature
-        //        );
 
         // Encode enable module function call
         data = abi.encodeCall(ISafe.enableModule, (address(this)));
@@ -467,8 +412,10 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
     }
 
     /// @dev Distributes rewards.
-    /// @return balance Amount drained.
-    function _distributeRewards(uint256 serviceId) internal returns (uint256 balance) {
+    /// @param stakingProxy Staking proxy address.
+    /// @param serviceId Service Id.
+    /// @param reward Service reward.
+    function _distributeRewards(address stakingProxy, uint256 serviceId, uint256 reward) internal {
         // Get service multisig
         (, address multisig,,,,,) = IService(serviceRegistry).mapServices(serviceId);
 
@@ -480,18 +427,24 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
             revert ZeroAddress();
         }
 
-        // Get multisig balance
-        balance = IToken(olas).balanceOf(multisig);
+        // Get proxy config value
+        uint256 config = mapStakingProxyConfigs[stakingProxy];
 
-        // Check for zero balance
-        if (balance > 0) {
-            // Calculate reward distribution
-            uint256 collectorAmount = (balance * collectorRewardFactor) / MAX_REWARD_FACTOR;
-            uint256 protocolAmount = (balance * protocolRewardFactor) / MAX_REWARD_FACTOR;
-            uint256 curatingAgentAmount = balance - collectorAmount - protocolAmount;
+        // Unwrap config
+        (uint256 collectorAmount, uint256 protocolAmount, , StakingType stakingType) = unwrapStakingConfig(config);
+
+        // Calculate reward distribution
+        collectorAmount = (reward * collectorAmount) / MAX_REWARD_FACTOR;
+        protocolAmount = (reward * protocolAmount) / MAX_REWARD_FACTOR;
+        uint256 curatingAgentAmount = reward - collectorAmount - protocolAmount;
+        uint256 fullCollectorAmount = collectorAmount + protocolAmount;
+
+        // Check staking type to define transfer operations
+        if (stakingType == StakingType.STAKING_TYPE_OLAS_V1) {
+            // Reward is on multisig
 
             // Encode OLAS approve function call for collector
-            bytes memory data = abi.encodeCall(IToken.approve, (collector, collectorAmount + protocolAmount));
+            bytes memory data = abi.encodeCall(IToken.approve, (collector, fullCollectorAmount));
             // MultiSend payload with the packed data of (operation, multisig address, value(0), payload length, payload)
             bytes memory msPayload = abi.encodePacked(ISafe.Operation.Call, olas, uint256(0), data.length, data);
 
@@ -502,18 +455,25 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
                 msPayload, abi.encodePacked(ISafe.Operation.Call, collector, uint256(0), data.length, data)
             );
 
-            // Encode collector top-up function call for protocol assets
-            data = abi.encodeCall(ICollector.topUpProtocol, (protocolAmount));
-            // Concatenate multi send payload with the packed data of (operation, multisig address, value(0), payload length, payload)
-            msPayload = bytes.concat(
-                msPayload, abi.encodePacked(ISafe.Operation.Call, collector, uint256(0), data.length, data)
-            );
+            // Check for protocol amount
+            if (protocolAmount > 0) {
+                // Encode collector top-up function call for protocol assets
+                data = abi.encodeCall(ICollector.topUpProtocol, (protocolAmount));
+                // Concatenate multi send payload with the packed data of (operation, multisig address, value(0), payload length, payload)
+                msPayload = bytes.concat(
+                    msPayload, abi.encodePacked(ISafe.Operation.Call, collector, uint256(0), data.length, data)
+                );
+            }
 
-            // Encode OLAS transfer function call for curating agent
-            data = abi.encodeCall(IToken.transfer, (curatingAgent, curatingAgentAmount));
-            // Concatenate multi send payload with the packed data of (operation, multisig address, value(0), payload length, payload)
-            msPayload =
-                bytes.concat(msPayload, abi.encodePacked(ISafe.Operation.Call, olas, uint256(0), data.length, data));
+            // Check for curating agent amount
+            if (curatingAgentAmount > 0) {
+                // Encode OLAS transfer function call for curating agent
+                data = abi.encodeCall(IToken.transfer, (curatingAgent, curatingAgentAmount));
+                // Concatenate multi send payload with the packed data of (operation, multisig address, value(0), payload length, payload)
+                msPayload = bytes.concat(
+                    msPayload, abi.encodePacked(ISafe.Operation.Call, olas, uint256(0), data.length, data)
+                );
+            }
 
             // Multisend call to execute all the payloads
             msPayload = abi.encodeCall(IMultiSend.multiSend, (msPayload));
@@ -526,9 +486,29 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
             if (!success) {
                 revert ExecutionFailed(multiSend, msPayload);
             }
+        } else if (stakingType == StakingType.STAKING_TYPE_OLAS_V2) {
+            // Reward is already on address(this)
 
-            emit RewardsDistributed(serviceId, multisig, collectorAmount, protocolAmount, curatingAgentAmount);
+            // Approve olas for collector
+            IToken(olas).approve(collector, fullCollectorAmount);
+            // Collector top-up function call for REWARD operation
+            ICollector(collector).topUpBalance(collectorAmount, REWARD);
+
+            // Check for protocol amount
+            if (protocolAmount > 0) {
+                ICollector(collector).topUpProtocol(protocolAmount);
+            }
+
+            // Check for curating agent amount
+            if (curatingAgentAmount > 0) {
+                IToken(olas).transfer(curatingAgent, curatingAgentAmount);
+            }
+        } else {
+            // This must never happen
+            revert UnsupportedStakingType(uint8(stakingType));
         }
+
+        emit RewardsDistributed(serviceId, multisig, collectorAmount, protocolAmount, curatingAgentAmount);
     }
 
     /// @dev Stakes OLAS into specified staking proxy contract if balance is enough for staking.
@@ -547,7 +527,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         _locked = 2;
 
         // Check for whitelisted staking proxy type
-        if (mapStakingProxyTypes[stakingProxy] == 0) {
+        if (mapStakingProxyConfigs[stakingProxy] == 0) {
             revert ZeroValue();
         }
 
@@ -586,34 +566,30 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         _locked = 1;
     }
 
-    // TODO Naming
     /// @dev Unstakes, if needed, and withdraws specified amounts from specified staking contracts.
     /// @param stakingProxy Staking proxy address.
     /// @param serviceId Service Id.
     /// @param operation Unstake operation type.
-    function unstake(address stakingProxy, uint256 serviceId, bytes32 operation) external virtual {
+    function unstakeAndWithdraw(address stakingProxy, uint256 serviceId, bytes32 operation) external {
         // Reentrancy guard
         if (_locked > 1) {
             revert ReentrancyGuard();
         }
         _locked = 2;
 
-        address serviceCuratingAgent = mapServiceIdCuratingAgents[serviceId];
-        // Check for access
-        if (msg.sender != owner && msg.sender != serviceCuratingAgent) {
+        // Check for access: whitelisted managing agent or owner
+        if (!mapManagingAgents[msg.sender] && msg.sender != owner) {
             revert UnauthorizedAccount(msg.sender);
         }
 
-        uint256 fullStakingDeposit;
-        uint256 localStakedBalance;
         // Check if service unstake is requested
         if (stakingProxy != address(0) && serviceId > 0) {
             // Calculate how many unstakes are needed
             uint256 minStakingDeposit = IStaking(stakingProxy).minStakingDeposit();
-            fullStakingDeposit = minStakingDeposit * (1 + NUM_AGENT_INSTANCES);
+            uint256 fullStakingDeposit = minStakingDeposit * (1 + NUM_AGENT_INSTANCES);
 
             // Get current staked balance
-            localStakedBalance = stakedBalance;
+            uint256 localStakedBalance = stakedBalance;
 
             // This must never happen because of how it was setup in first place
             if (fullStakingDeposit > localStakedBalance) {
@@ -625,15 +601,19 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
             stakedBalance = localStakedBalance;
 
             // Unstake, terminate and unbond service
-            IStaking(stakingProxy).unstake(serviceId);
+            uint256 reward = IStaking(stakingProxy).unstake(serviceId);
             IService(serviceManager).terminate(serviceId);
             IService(serviceManager).unbond(serviceId);
 
-            // Distribute leftover rewards if not zero
-            _distributeRewards(serviceId);
+            if (reward > 0) {
+                // Distribute leftover rewards, if not zero
+                _distributeRewards(stakingProxy, serviceId, reward);
+            }
 
             // Clear curating agent since service is unstaked, terminated and unbonded
             delete mapServiceIdCuratingAgents[serviceId];
+
+            emit ExternalServiceUnstaked(msg.sender, stakingProxy, serviceId, fullStakingDeposit, localStakedBalance);
         }
 
         // Get current unstake requested amount
@@ -664,27 +644,27 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
             // Request top-up by Collector for a specific unstake operation
             ICollector(collector).topUpBalance(amount, operation);
 
-            // TODO how much requested vs how much transferred
-            emit ExternalServiceUnstaked(
-                msg.sender, stakingProxy, serviceId, fullStakingDeposit, localStakedBalance, amount, unstakeRequestedAmount
-            );
+            emit Withdraw(msg.sender, operation, amount, unstakeRequestedAmount);
         }
-
-        // TODO else event / unstake
 
         _locked = 1;
     }
 
     /// @dev Sets staking proxy types.
     /// @param stakingProxies Set of staking proxies.
-    function setStakingProxyTypes(address[] memory stakingProxies) external {
+    /// @param configs Corresponding set of staking configs.
+    function setStakingProxyConfigs(address[] memory stakingProxies, uint256[] memory configs) external {
         // Check for the ownership
         if (msg.sender != owner) {
             revert OwnerOnly(msg.sender, owner);
         }
 
+        // Get number of proxies
         uint256 numProxies = stakingProxies.length;
-        bytes32[] memory proxyTypes = new bytes32[](numProxies);
+        // Check for array length
+        if (numProxies == 0 || numProxies != configs.length) {
+            revert WrongArrayLength();
+        }
 
         // Traverse staking proxies
         for (uint256 i = 0; i < numProxies; ++i) {
@@ -693,12 +673,58 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
                 revert ZeroAddress();
             }
 
-            // Note: for right now it is single type only
-            proxyTypes[i] = STAKING_TYPE_OLAS_V1;
-            mapStakingProxyTypes[stakingProxies[i]] = proxyTypes[i];
+            // Check for zero value
+            if (configs[i] == 0) {
+                revert ZeroValue();
+            }
+
+            // Check proxy configs
+            (uint256 collectorRewardFactor, uint256 protocolRewardFactor, uint256 curatingAgentRewardFactor,) = unwrapStakingConfig(configs[i]);
+
+            // Check for collector and zero value
+            if (collectorRewardFactor == 0) {
+                revert ZeroValue();
+            }
+
+            // Check for MAX_REWARD_FACTOR overflow
+            uint256 totalFactor = collectorRewardFactor + protocolRewardFactor + curatingAgentRewardFactor;
+            if (totalFactor > MAX_REWARD_FACTOR) {
+                revert Overflow(totalFactor, MAX_REWARD_FACTOR);
+            }
+
+            mapStakingProxyConfigs[stakingProxies[i]] = configs[i];
         }
 
-        emit SetStakingProxyTypes(stakingProxies, proxyTypes);
+        emit SetStakingProxyConfigs(stakingProxies, configs);
+    }
+
+    /// @dev Sets managing agents statuses.
+    /// @param managingAgents Set of managing agents.
+    /// @param statuses Corresponding set of statuses: true / false.
+    function setManagingAgents(address[] memory managingAgents, bool[] memory statuses) external {
+        // Check for the ownership
+        if (msg.sender != owner) {
+            revert OwnerOnly(msg.sender, owner);
+        }
+
+        // Get number of agents
+        uint256 numAgents = managingAgents.length;
+        // Check for array length
+        if (numAgents == 0 || numAgents != statuses.length) {
+            revert WrongArrayLength();
+        }
+
+        // Traverse managing agents
+        for (uint256 i = 0; i < numAgents; ++i) {
+            // Check for zero address
+            if (managingAgents[i] == address(0)) {
+                revert ZeroAddress();
+            }
+
+            mapManagingAgents[managingAgents[i]] = statuses[i];
+        }
+
+        emit SetManagingAgentStatuses(managingAgents, statuses);
     }
 
     /// @dev Deposits OLAS for further staking.
@@ -719,16 +745,15 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         // Get OLAS from l2StakingProcessor or any other account
         IToken(olas).transferFrom(msg.sender, address(this), amount);
 
-        emit Deposit(msg.sender, amount, operation);
+        emit Deposit(msg.sender, operation, amount);
 
         _locked = 1;
     }
 
-    // TODO Naming
-    /// @dev Requests withdraw via specified unstake operation.
-    /// @param amount Unstake amount.
+    /// @dev Requests withdraw via specified unstake operation, and request to add to unstake amount, if required.
+    /// @param amount Specified unstake amount.
     /// @param operation Unstake operation type.
-    function withdraw(uint256 amount, bytes32 operation) external {
+    function withdrawAndRequestUnstake(uint256 amount, bytes32 operation) external {
         // Reentrancy guard
         if (_locked > 1) {
             revert ReentrancyGuard();
@@ -771,7 +796,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
             ICollector(collector).topUpBalance(amount, operation);
         }
 
-        emit Withdraw(msg.sender, amount, operation, unstakeRequestedAmount);
+        emit Withdraw(msg.sender, operation, amount, unstakeRequestedAmount);
 
         _locked = 1;
     }
@@ -792,11 +817,9 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
 
         // Get number of proxies
         uint256 numProxies = stakingProxies.length;
-
-        // TODO
         // Check for correct array length
-        if (serviceIds.length != numProxies) {
-            revert();
+        if (numProxies == 0 || serviceIds.length != numProxies) {
+            revert WrongArrayLength();
         }
 
         // Allocate rewards array
@@ -804,17 +827,66 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
 
         // Claim rewards
         for (uint256 i = 0; i < numProxies; ++i) {
+            // Check for zero address
+            if (stakingProxies[i] == address(0)) {
+                revert ZeroAddress();
+            }
+
+            // Claim reward
             rewards[i] = IStaking(stakingProxies[i]).claim(serviceIds[i]);
         }
 
         // Distribute rewards
         for (uint256 i = 0; i < numProxies; ++i) {
-            _distributeRewards(serviceIds[i]);
+            if (rewards[i] > 0) {
+                _distributeRewards(stakingProxies[i], serviceIds[i], rewards[i]);
+            }
         }
 
         emit Claimed(stakingProxies, serviceIds, rewards);
 
         _locked = 1;
+    }
+
+    /// @dev Wraps staking proxy config: reward factors and staking type value.
+    /// @param collectorRewardFactor Collector reward factor.
+    /// @param protocolRewardFactor Protocol reward factor.
+    /// @param curatingAgentRewardFactor Curating agent reward factor.
+    /// @param stakingType Staking type.
+    function wrapStakingConfig(
+        uint256 collectorRewardFactor,
+        uint256 protocolRewardFactor,
+        uint256 curatingAgentRewardFactor,
+        StakingType stakingType
+    ) public pure returns (uint256 config) {
+        // Staking config: collectorRewardFactor 16 bits | protocolRewardFactor 16 bits
+        //                 | curatingAgentRewardFactor 16 bits | stakingType 8 bits
+        config = uint8(stakingType) | curatingAgentRewardFactor << 8 | protocolRewardFactor << 24
+            | collectorRewardFactor << 40;
+    }
+
+    /// @dev Unwraps staking proxy config: reward factors and staking type value.
+    /// @param config Staking proxy config value.
+    /// @return collectorRewardFactor Collector reward factor.
+    /// @return protocolRewardFactor Protocol reward factor.
+    /// @return curatingAgentRewardFactor Curating agent reward factor.
+    /// @return stakingType Staking type.
+    function unwrapStakingConfig(uint256 config)
+        public
+        pure
+        returns (
+            uint256 collectorRewardFactor,
+            uint256 protocolRewardFactor,
+            uint256 curatingAgentRewardFactor,
+            StakingType stakingType
+        )
+    {
+        // Staking config: collectorRewardFactor 16 bits | protocolRewardFactor 16 bits
+        //                 | curatingAgentRewardFactor 16 bits | stakingType 8 bits
+        collectorRewardFactor = config >> 40;
+        protocolRewardFactor = uint16(config >> 24);
+        curatingAgentRewardFactor = uint16(config >> 8);
+        stakingType = StakingType(uint8(config));
     }
 
     /// @dev Receives native funds for mock Service Registry minimal payments.

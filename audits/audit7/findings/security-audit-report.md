@@ -218,7 +218,7 @@ if (serviceIds.length != numProxies) {
     revert WrongArrayLength();
 }
 ```
-[]
+[x] Fixed
 
 ---
 
@@ -321,7 +321,7 @@ if (localStakedExternals[i] > type(uint96).max) {
 ```
 
 **Note:** See [HIGH-2-reanalysis.md](HIGH-2-reanalysis.md) for detailed analysis.
-[]
+[x] Noted, but too big to be reached
 
 ---
 
@@ -336,7 +336,7 @@ As mentioned in MED-3, the `revert()` without error message is a code quality is
 
 **Recommendation:**
 Use a proper custom error.
-[]
+[x] Fixed
 
 ---
 
@@ -357,7 +357,7 @@ Large block of commented-out code that should be removed:
 
 **Recommendation:**
 Remove commented code or move to documentation if it's needed for reference.
-[]
+[x] Noted, will be removed
 
 ---
 
@@ -372,7 +372,7 @@ Some state changes don't emit events, making off-chain tracking difficult.
 
 **Recommendation:**
 Ensure all important state changes emit events for transparency and off-chain monitoring.
-[]
+[x] Fixed
 
 ---
 
@@ -389,7 +389,7 @@ The code uses a non-standard signature pattern for Safe multisig transactions. H
 - No external party can exploit this pattern
 
 **Status:** ✅ **False Positive** - No security issue. See [HIGH-3-reanalysis.md](HIGH-3-reanalysis.md) for details.
-[]
+[x] Noted
 
 ---
 
@@ -398,12 +398,12 @@ The code uses a non-standard signature pattern for Safe multisig transactions. H
 ### Q-1: Inconsistent Error Messages
 
 Some functions use custom errors, others use unnamed reverts. Standardize error handling.
-[]
+[x] Fixed
 
 ### Q-2: Magic Numbers
 
 Constants like `MAX_REWARD_FACTOR = 10_000` are good, but consider documenting why this specific value was chosen.
-[]
+[x] Fixed
 
 ### Q-3: TODO Comments
 
@@ -411,7 +411,7 @@ Several TODO comments indicate incomplete implementation:
 - ChainId ordering check
 - Array length validation in claim
 - Auto-calculation comment in unstakeExternal
-[]
+[x] Fixed
 ---
 
 

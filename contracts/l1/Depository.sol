@@ -827,11 +827,11 @@ contract Depository is Implementation {
 
     /// @dev Sets external staking distributor contract addresses and their corresponding L2 chain Ids.
     /// @notice Overwriting existing staking distributor addresses is only possible if their balances are zero.
-    /// @param externalStakingDistributors Set of external staking distributor contract addresses on L2.
-    /// @param chainIds Set of corresponding L2 chain Ids.
+    /// @param chainIds Set of L2 chain Ids.
+    /// @param externalStakingDistributors Corresponding set of external staking distributor contract addresses on L2.
     function setExternalStakingDistributorChainIds(
-        address[] memory externalStakingDistributors,
-        uint256[] memory chainIds
+        uint256[] memory chainIds,
+        address[] memory externalStakingDistributors
     ) external {
         // Check for the ownership
         if (msg.sender != owner) {
