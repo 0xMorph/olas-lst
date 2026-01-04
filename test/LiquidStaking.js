@@ -384,6 +384,7 @@ describe("Liquid Staking", function () {
         // Whitelist gnosis multisig implementations
         await serviceRegistry.changeMultisigPermission(gnosisSafeMultisig.address, true);
         await serviceRegistry.changeMultisigPermission(gnosisSafeSameAddressMultisig.address, true);
+        await serviceRegistry.changeMultisigPermission(recoveryModule.address, true);
 
         // Fund staking contract
         await olas.approve(stakingTokenAddress, stakingSupply);
@@ -1758,7 +1759,7 @@ describe("Liquid Staking", function () {
             await externalStakingTokenInstance.deposit(stakingSupply);
 
             // Stake service - create new one with serviceId == 0
-            const agentInstanceAddress = signers[1].address;
+            let agentInstanceAddress = signers[1].address;
             await externalStakingDistributor.stake(externalStakingTokenAddress, 0, agentId, defaultHash, agentInstanceAddress);
 
             // Get the service multisig contract
@@ -1770,6 +1771,11 @@ describe("Liquid Staking", function () {
             let txHashData = await safeContracts.buildContractCall(multisig, "getThreshold", [], nonce, 0, 0);
             let signMessageData = await safeContracts.safeSignMessage(signers[1], multisig, txHashData, 0);
             await safeContracts.executeTx(multisig, txHashData, [signMessageData], 0);
+
+            // Try to unstake before required staking time is passed
+            await expect(
+                externalStakingDistributor.unstakeAndWithdraw(externalStakingTokenAddress, serviceId, unstakeOperation)
+            ).to.be.reverted;
 
             // Increase the time for the liveness period
             await helpers.time.increase(maxInactivity);
@@ -1790,7 +1796,7 @@ describe("Liquid Staking", function () {
             await collector.relayTokens(rewardOperation, bridgePayload);
 
             console.log("\nL1");
-            const distributorBalance = await olas.balanceOf(distributor.address);
+            let distributorBalance = await olas.balanceOf(distributor.address);
             console.log("Distributor balance now:", distributorBalance.toString());
             // Distribute OLAS to veOLAS and stOLAS
             console.log("Calling distribute obtained L2 to L1 OLAS to veOLAS and stOLAS by agent or manually");
@@ -1799,6 +1805,60 @@ describe("Liquid Staking", function () {
             console.log("stakedBalance after distribute:", await st.stakedBalance());
             console.log("vaultBalance after distribute:", await st.vaultBalance());
             console.log("reserveBalance after distribute:", await st.reserveBalance());
+
+            // Unstake service
+            await externalStakingDistributor.unstakeAndWithdraw(externalStakingTokenAddress, serviceId, unstakeOperation);
+
+            // Re-stake same service that was unstaked
+            agentInstanceAddress = signers[2].address;
+            await externalStakingDistributor.stake(externalStakingTokenAddress, serviceId, agentId, defaultHash, agentInstanceAddress);
+
+            // Make transactions by the service multisig
+            nonce = await multisig.nonce();
+            txHashData = await safeContracts.buildContractCall(multisig, "getThreshold", [], nonce, 0, 0);
+            signMessageData = await safeContracts.safeSignMessage(signers[2], multisig, txHashData, 0);
+            await safeContracts.executeTx(multisig, txHashData, [signMessageData], 0);
+
+            // Increase the time for the liveness period
+            await helpers.time.increase(maxInactivity);
+
+            // Checkpoint
+            await externalStakingTokenInstance.checkpoint();
+
+            // Claim and distribute rewards
+            await externalStakingDistributor.claim([externalStakingTokenAddress], [serviceId]);
+
+            // Request to withdraw
+            await treasury.requestToWithdraw(olasAmount, [[gnosisChainId], []], [olasAmount], [],
+                [[bridgePayload], []], [[0], []]);
+
+            // Unstake service
+            await externalStakingDistributor.unstakeAndWithdraw(externalStakingTokenAddress, serviceId, unstakeOperation);
+
+            // At this point of time external staking distributor should not have funds
+            externalBalance = await olas.balanceOf(externalStakingDistributor.address);
+            expect(externalBalance).to.equal(0);
+
+            // Relay rewards and unstake request to L1
+            console.log("Calling relay rewards tokens to L1 by agent or manually");
+            await collector.relayTokens(rewardOperation, bridgePayload);
+            await collector.relayTokens(unstakeOperation, bridgePayload);
+
+            console.log("\nL1");
+            distributorBalance = await olas.balanceOf(distributor.address);
+            console.log("Distributor balance now:", distributorBalance.toString());
+            // Distribute OLAS to veOLAS and stOLAS
+            console.log("Calling distribute obtained L2 to L1 OLAS to veOLAS and stOLAS by agent or manually");
+            await distributor.distribute();
+
+            console.log("stakedBalance after distribute:", await st.stakedBalance());
+            console.log("vaultBalance after distribute:", await st.vaultBalance());
+            console.log("reserveBalance after distribute:", await st.reserveBalance());
+
+            // Check Treasury balance: it must be bigger than olasAmount
+            // olasAmount in stOLAS with rewards is > than OLAS olasAmount
+            let treasuryBalance = await olas.balanceOf(treasury.address);
+            expect(treasuryBalance).to.gt(olasAmount);
 
             // Restore a previous state of blockchain
             snapshot.restore();

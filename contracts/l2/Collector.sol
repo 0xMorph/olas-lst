@@ -363,6 +363,9 @@ contract Collector is Implementation {
         _locked = 1;
     }
 
+    /// @dev Funds external address.
+    /// @param account Account address.
+    /// @param amount Amount value.
     function fundExternal(address account, uint256 amount) external {
         // Reentrancy guard
         if (_locked == 2) {

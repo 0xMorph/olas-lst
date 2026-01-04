@@ -36,6 +36,13 @@ interface IMultiSend {
     function multiSend(bytes memory transactions) external payable;
 }
 
+// Recovery Module interface
+interface IRecoveryModule {
+    /// @dev Recovers service multisig access for a specified service Id.
+    /// @param serviceId Service Id.
+    function recoverAccess(uint256 serviceId) external;
+}
+
 // Generic Safe interface
 interface ISafe {
     enum Operation {
@@ -97,6 +104,9 @@ interface ISafeMultisigWithRecoveryModule {
     /// @param data Encoded data related to the creation of a chosen multisig.
     /// @return multisig Address of a created multisig.
     function create(address[] memory owners, uint256 threshold, bytes memory data) external returns (address multisig);
+
+    /// @dev Gets recovery module address.
+    function recoveryModule() external view returns (address);
 }
 
 /// @dev Zero value.
@@ -191,6 +201,8 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
     address public immutable serviceRegistryTokenUtility;
     // Safe multisig with recovery module processing contract address
     address public immutable safeMultisigWithRecoveryModule;
+    // Recovery module contract address
+    address public immutable recoveryModule;
     // Safe same address multisig processing contract address
     address public immutable safeSameAddressMultisig;
     // Safe fallback handler address
@@ -256,6 +268,7 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         collector = _collector;
         serviceRegistry = IService(serviceManager).serviceRegistry();
         serviceRegistryTokenUtility = IService(serviceManager).serviceRegistryTokenUtility();
+        recoveryModule = ISafeMultisigWithRecoveryModule(_safeMultisigWithRecoveryModule).recoveryModule();
     }
 
     /// @dev Initializes external staking distributor.
@@ -393,11 +406,8 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
             // Deploy service via same address multisig
             IService(serviceManager).deploy(serviceId, safeSameAddressMultisig, abi.encodePacked(multisig));
         } else {
-            // Get service multisig
-            (, multisig,,,,,) = IService(serviceRegistry).mapServices(serviceId);
-
-            // Re-deploy service
-            multisig = IService(serviceManager).deploy(serviceId, safeSameAddressMultisig, abi.encodePacked(multisig));
+            // Re-deploy service via recovery module
+            multisig = IService(serviceManager).deploy(serviceId, recoveryModule, abi.encode(serviceId));
         }
 
         emit Deployed(serviceId, multisig);
@@ -605,6 +615,9 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
             IService(serviceManager).terminate(serviceId);
             IService(serviceManager).unbond(serviceId);
 
+            // Pass access to address(this)
+            IRecoveryModule(recoveryModule).recoverAccess(serviceId);
+
             if (reward > 0) {
                 // Distribute leftover rewards, if not zero
                 _distributeRewards(stakingProxy, serviceId, reward);
@@ -686,9 +699,9 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
                 revert ZeroValue();
             }
 
-            // Check for MAX_REWARD_FACTOR overflow
+            // Check for total factor to be equal to MAX_REWARD_FACTOR (100%)
             uint256 totalFactor = collectorRewardFactor + protocolRewardFactor + curatingAgentRewardFactor;
-            if (totalFactor > MAX_REWARD_FACTOR) {
+            if (totalFactor != MAX_REWARD_FACTOR) {
                 revert Overflow(totalFactor, MAX_REWARD_FACTOR);
             }
 

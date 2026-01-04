@@ -482,3 +482,4 @@ fi
 #  echo "${red}!!! Fetched address: $result${reset}"
 #  echo "${red}!!! Expected address: $bridgeMediator${reset}"
 #fi
+# CHECK EXTERNAL STAKING CONTRACT configs
