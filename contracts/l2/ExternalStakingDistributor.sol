@@ -446,8 +446,8 @@ contract ExternalStakingDistributor is Implementation, ERC721TokenReceiver {
         // Calculate reward distribution
         collectorAmount = (reward * collectorAmount) / MAX_REWARD_FACTOR;
         protocolAmount = (reward * protocolAmount) / MAX_REWARD_FACTOR;
-        uint256 curatingAgentAmount = reward - collectorAmount - protocolAmount;
         uint256 fullCollectorAmount = collectorAmount + protocolAmount;
+        uint256 curatingAgentAmount = reward - fullCollectorAmount;
 
         // Check staking type to define transfer operations
         if (stakingType == StakingType.STAKING_TYPE_OLAS_V1) {
