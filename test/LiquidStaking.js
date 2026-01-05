@@ -1869,7 +1869,7 @@ describe("Liquid Staking", function () {
             await externalStakingDistributor.unstakeAndWithdraw(externalStakingTokenAddressV1, serviceId, unstakeOperation);
             await externalStakingDistributor.unstakeAndWithdraw(externalStakingTokenAddressV2, serviceId + 1, unstakeOperation);
 
-            // Check external balance after first unstake
+            // Check external balance after first unstake - must be equal to full olas amount
             externalBalance = await olas.balanceOf(externalStakingDistributor.address);
             console.log("externalStakingDistributor balance after first unstake:", externalBalance);
             expect(externalBalance).to.equal(olasAmount);
@@ -1905,6 +1905,15 @@ describe("Liquid Staking", function () {
             // Request to withdraw
             await treasury.requestToWithdraw(olasAmount, [[gnosisChainId], []], [olasAmount], [],
                 [[bridgePayload], []], [[0], []]);
+
+            // Check UNSTAKE requested: it is now half of olasAmount because the unused unstaked funds were released right away
+            unstakeRequestedExternal = await externalStakingDistributor.mapUnstakeOperationRequestedAmounts(unstakeOperation);
+            //console.log("Unstake requested external after withdraw request:", unstakeRequestedExternal);
+            expect(unstakeRequestedExternal).to.equal(olasAmount.div(2));
+
+            // At this point of time external staking distributor has no funds - as those requested for unstake are still staked
+            externalBalance = await olas.balanceOf(externalStakingDistributor.address);
+            expect(externalBalance).to.equal(0);
 
             // Unstake services
             await externalStakingDistributor.unstakeAndWithdraw(externalStakingTokenAddressV1, serviceId, unstakeOperation);
