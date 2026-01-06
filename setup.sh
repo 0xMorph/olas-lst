@@ -77,42 +77,7 @@ fi
 
 echo "✓ Using Yarn: $(yarn --version)"
 
-# 4. INSTALL PYTHON AND POETRY
-if ! command -v python3 &> /dev/null; then
-    echo "ERROR: Python3 not found"
-    exit 1
-fi
-
-PYTHON_VERSION=$(python3 --version 2>&1 | grep -oP '\d+\.\d+' | head -n1)
-PYTHON_MAJOR=$(echo $PYTHON_VERSION | cut -d. -f1)
-PYTHON_MINOR=$(echo $PYTHON_VERSION | cut -d. -f2)
-
-if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 12 ]); then
-    echo "WARNING: Python 3.12+ recommended, found $(python3 --version)"
-    echo "Continuing anyway..."
-fi
-
-echo "✓ Using Python: $(python3 --version)"
-
-# Install Poetry
-export PATH="$HOME/.local/bin:$PATH"
-
-if command -v poetry &> /dev/null; then
-    echo "✓ Poetry already installed"
-else
-    echo "Installing Poetry..."
-    curl -sSL https://install.python-poetry.org | python3 -
-    export PATH="$HOME/.local/bin:$PATH"
-
-    if ! command -v poetry &> /dev/null; then
-        echo "ERROR: Poetry installation failed"
-        exit 1
-    fi
-fi
-
-echo "✓ Using Poetry: $(poetry --version)"
-
-# 5. CLEAN BUILD STATE
+# 4. CLEAN BUILD STATE
 echo "Cleaning build artifacts..."
 forge clean 2>/dev/null || true
 rm -rf node_modules 2>/dev/null || true
@@ -121,20 +86,9 @@ rm -rf artifacts 2>/dev/null || true
 
 echo "✓ Build artifacts cleaned"
 
-# 6. INSTALL DEPENDENCIES
+# 5. INSTALL DEPENDENCIES
 
-# 6a. Install Poetry dependencies
-echo "Installing Python dependencies..."
-poetry install
-
-if [ $? -ne 0 ]; then
-    echo "ERROR: Poetry install failed"
-    exit 1
-fi
-
-echo "✓ Poetry dependencies installed"
-
-# 6b. Install Forge dependencies (git submodules)
+# 5a. Install Forge dependencies (git submodules)
 echo "Installing Forge dependencies and git submodules..."
 forge install
 
@@ -155,7 +109,7 @@ done
 
 echo "✓ Forge dependencies installed"
 
-# 6c. Install Node.js dependencies
+# 5b. Install Node.js dependencies
 echo "Installing Node.js dependencies..."
 yarn install --frozen-lockfile 2>/dev/null || yarn install
 
@@ -166,7 +120,7 @@ fi
 
 echo "✓ Node.js dependencies installed"
 
-# 7. BUILD PROJECT
+# 6. BUILD PROJECT
 echo "Building Solidity contracts..."
 forge build
 
@@ -183,7 +137,7 @@ fi
 
 echo "✓ Build successful"
 
-# 8. COMPLETION MESSAGE
+# 7. COMPLETION MESSAGE
 echo ""
 echo "=== Setup complete ==="
 echo ""
